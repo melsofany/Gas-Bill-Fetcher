@@ -15,12 +15,13 @@ FROM node:22-slim
   # Install pnpm
   RUN npm install -g pnpm
 
-  # Copy all source so workspace:* deps and lockfile are available during install
+  # Copy all source first (workspace:* deps need all package.json files)
   COPY . .
 
-  # Install without --frozen-lockfile so pnpm v10 reads onlyBuiltDependencies
-  # from pnpm-workspace.yaml and allows esbuild post-install script to run
-  RUN pnpm install --prefer-frozen-lockfile
+  # Install using lockfile if present, but allow build scripts from pnpm-workspace.yaml
+  # Plain pnpm install (no --frozen-lockfile) reads onlyBuiltDependencies from
+  # pnpm-workspace.yaml and allows esbuild to run its post-install script
+  RUN pnpm install
 
   # Build only the api-server
   RUN pnpm --filter @workspace/api-server run build
