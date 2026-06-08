@@ -1,8 +1,13 @@
 import express, { type Express, type Request, type Response } from "express";
   import cors from "cors";
   import pinoHttp from "pino-http";
+  import path from "path";
+  import { fileURLToPath } from "url";
   import router from "./routes";
   import { logger } from "./lib/logger";
+
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
 
   const app: Express = express();
 
@@ -29,11 +34,16 @@ import express, { type Express, type Request, type Response } from "express";
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  app.get("/", (_req: Request, res: Response) => {
-    res.json({ status: "ok", message: "Gas Bill Fetcher API is running", endpoints: ["/api/healthz", "/api/agent/status", "/api/scraper/run", "/api/scraper/status/:jobId", "/api/scraper/result/:jobId/pdf"] });
-  });
-
   app.use("/api", router);
+
+  // Serve React frontend static files
+  const frontendDist = path.resolve(__dirname, "../../petrotrade-scraper/dist/public");
+  app.use(express.static(frontendDist));
+
+  // Catch-all: serve index.html for any non-API route (SPA routing)
+  app.get("*", (_req: Request, res: Response) => {
+    res.sendFile(path.join(frontendDist, "index.html"));
+  });
 
   export default app;
   
