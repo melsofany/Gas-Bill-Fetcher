@@ -13,16 +13,10 @@ import express, { type Express, type Request, type Response } from "express";
       logger,
       serializers: {
         req(req) {
-          return {
-            id: req.id,
-            method: req.method,
-            url: req.url?.split("?")[0],
-          };
+          return { id: req.id, method: req.method, url: req.url?.split("?")[0] };
         },
         res(res) {
-          return {
-            statusCode: res.statusCode,
-          };
+          return { statusCode: res.statusCode };
         },
       },
     }),
@@ -33,29 +27,24 @@ import express, { type Express, type Request, type Response } from "express";
 
   app.use("/api", router);
 
-  // Debug endpoint to diagnose path issues on Render
   app.get("/debug-paths", (_req: Request, res: Response) => {
     const cwd = process.cwd();
-    const candidate = path.resolve(cwd, "../petrotrade-scraper/dist/public");
-    const candidateAlt = path.resolve(cwd, "../../artifacts/petrotrade-scraper/dist/public");
-    
-    let cwdList: string[] = [];
-    let parentList: string[] = [];
-    try { cwdList = fs.readdirSync(cwd); } catch {}
-    try { parentList = fs.readdirSync(path.resolve(cwd, "..")); } catch {}
-
+    const scraperDir = path.resolve(cwd, "../petrotrade-scraper");
+    let scraperContents: string[] = [];
+    let distContents: string[] = [];
+    try { scraperContents = fs.readdirSync(scraperDir); } catch {}
+    try { distContents = fs.readdirSync(path.join(scraperDir, "dist")); } catch {}
     res.json({
       cwd,
-      candidate,
-      candidateExists: fs.existsSync(candidate),
-      candidateAlt,
-      candidateAltExists: fs.existsSync(candidateAlt),
-      cwdContents: cwdList,
-      parentContents: parentList,
+      scraperDir,
+      scraperExists: fs.existsSync(scraperDir),
+      scraperContents,
+      distContents,
+      frontendDist: path.join(scraperDir, "dist/public"),
+      frontendDistExists: fs.existsSync(path.join(scraperDir, "dist/public")),
     });
   });
 
-  // Serve React frontend static files
   const frontendDist = path.resolve(process.cwd(), "../petrotrade-scraper/dist/public");
 
   if (fs.existsSync(frontendDist)) {
@@ -65,7 +54,7 @@ import express, { type Express, type Request, type Response } from "express";
     });
   } else {
     app.get("/", (_req: Request, res: Response) => {
-      res.json({ status: "ok", message: "Gas Bill Fetcher API — frontend not found at: " + frontendDist });
+      res.json({ status: "ok", message: "API running — frontend not found", frontendDist });
     });
   }
 
