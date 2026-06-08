@@ -1,22 +1,23 @@
 services:
-  - type: web
-    name: gas-bill-fetcher-api
-    env: node
-    plan: standard
-    buildCommand: pnpm install && pnpm run build
-    startCommand: cd artifacts/api-server && node --enable-source-maps ./dist/index.mjs
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 8080
-      - key: GOOGLE_SHEET_ID
-        sync: false
-      - key: GOOGLE_CREDENTIALS_BASE64
-        sync: false
-      - key: BRIGHT_DATA_PROXY
-        value: brd.superproxy.io:33335
-      - key: BRIGHT_DATA_USER
-        sync: false
-      - key: BRIGHT_DATA_PASS
-        sync: false
+    - type: web
+      name: gas-bill-fetcher-api
+      env: node
+      plan: standard
+      buildCommand: pnpm install && BASE_PATH=/ PORT=3000 pnpm --filter @workspace/petrotrade-scraper run build && pnpm --filter @workspace/api-server run build
+      startCommand: cd artifacts/api-server && node --enable-source-maps ./dist/index.mjs
+      envVars:
+        - key: NODE_ENV
+          value: production
+        - key: PORT
+          value: 8080
+        - key: GOOGLE_SHEET_ID
+          sync: false
+        - key: GOOGLE_CREDENTIALS_BASE64
+          sync: false
+        - key: BRIGHT_DATA_PROXY
+          value: brd.superproxy.io:33335
+        - key: BRIGHT_DATA_USER
+          sync: false
+        - key: BRIGHT_DATA_PASS
+          sync: false
+  
