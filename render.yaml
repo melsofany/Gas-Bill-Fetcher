@@ -3,7 +3,7 @@ services:
       name: gas-bill-fetcher-api
       env: node
       plan: standard
-      buildCommand: pnpm install && pnpm --filter @workspace/petrotrade-scraper run build && pnpm --filter @workspace/api-server run build
+      buildCommand: pnpm install && (cd artifacts/petrotrade-scraper && pnpm run build) && (cd artifacts/api-server && pnpm run build)
       startCommand: cd artifacts/api-server && node --enable-source-maps ./dist/index.mjs
       envVars:
         - key: NODE_ENV
