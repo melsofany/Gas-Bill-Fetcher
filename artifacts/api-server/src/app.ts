@@ -2,12 +2,9 @@ import express, { type Express, type Request, type Response } from "express";
   import cors from "cors";
   import pinoHttp from "pino-http";
   import path from "path";
-  import { fileURLToPath } from "url";
+  import fs from "fs";
   import router from "./routes";
   import { logger } from "./lib/logger";
-
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
 
   const app: Express = express();
 
@@ -37,13 +34,21 @@ import express, { type Express, type Request, type Response } from "express";
   app.use("/api", router);
 
   // Serve React frontend static files
-  const frontendDist = path.resolve(__dirname, "../../petrotrade-scraper/dist/public");
-  app.use(express.static(frontendDist));
+  // start command: cd artifacts/api-server && node ./dist/index.mjs => cwd = artifacts/api-server
+  const frontendDist = path.resolve(process.cwd(), "../petrotrade-scraper/dist/public");
 
-  // Catch-all: serve index.html for any non-API route (SPA routing)
-  app.get("*", (_req: Request, res: Response) => {
-    res.sendFile(path.join(frontendDist, "index.html"));
-  });
+  if (fs.existsSync(frontendDist)) {
+    app.use(express.static(frontendDist));
+    app.get("*", (_req: Request, res: Response) => {
+      res.sendFile(path.join(frontendDist, "index.html"));
+    });
+    logger.info({ frontendDist }, "Serving frontend static files");
+  } else {
+    logger.warn({ frontendDist }, "Frontend dist not found, skipping static file serving");
+    app.get("/", (_req: Request, res: Response) => {
+      res.json({ status: "ok", message: "Gas Bill Fetcher API is running", endpoints: ["/api/healthz", "/api/agent/status", "/api/scraper/run"] });
+    });
+  }
 
   export default app;
   
