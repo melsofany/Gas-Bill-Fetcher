@@ -7,6 +7,7 @@ import * as os from "os";
 import * as http from "http";
 import * as net from "net";
 import { randomUUID } from "crypto";
+import { agentRelay } from "../lib/agent-relay";
 
 /**
  * Finds the system Chromium executable from the Nix store.
@@ -715,6 +716,37 @@ async function generatePDF(job: ScraperJob): Promise<string> {
   return pdfPath;
 }
 
+async function runScraperJobViaAgent(jobId: string, accounts: string[]) {
+  const job = jobs.get(jobId)!;
+
+  for (let i = 0; i < accounts.length; i++) {
+    const account = accounts[i];
+    try {
+      const result = await agentRelay.scrapeAccount(randomUUID(), account);
+      job.results[i] = { accountNumber: account, ...result };
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      job.results[i] = {
+        accountNumber: account,
+        consumption: null,
+        creditAdjustment: null,
+        advanceBalance: null,
+        amount: null,
+        issueMonth: null,
+        status: "error" as const,
+        error: errorMessage,
+      };
+    }
+    job.processedAccounts = i + 1;
+  }
+
+  const pdfPath = await generatePDF(job);
+  pdfPaths.set(jobId, pdfPath);
+  job.status = "completed";
+  job.completedAt = new Date().toISOString();
+  job.pdfReady = true;
+}
+
 async function runScraperJob(jobId: string, accounts: string[]) {
   const job = jobs.get(jobId)!;
   job.results = accounts.map((acc) => ({
@@ -727,6 +759,23 @@ async function runScraperJob(jobId: string, accounts: string[]) {
     status: "pending" as const,
     error: null,
   }));
+
+  // If a local agent (inside Egypt) is connected, delegate all scraping to it
+  if (agentRelay.isConnected()) {
+    try {
+      await runScraperJobViaAgent(jobId, accounts);
+    } catch (err: unknown) {
+      job.status = "failed";
+      job.completedAt = new Date().toISOString();
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      job.results = job.results.map((r) =>
+        r.status === "pending"
+          ? { ...r, status: "error" as const, error: errorMessage }
+          : r
+      );
+    }
+    return;
+  }
 
   let browser: import("playwright").Browser | null = null;
 

@@ -94,6 +94,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /agent/status:
+    get:
+      operationId: getAgentStatus
+      tags: [scraper]
+      summary: Check if local agent (inside Egypt) is connected
+      responses:
+        "200":
+          description: Agent connection status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentStatus"
+
   /scraper/find-proxy:
     post:
       operationId: findProxy
@@ -160,6 +173,16 @@ paths:
 
 components:
   schemas:
+    AgentStatus:
+      type: object
+      properties:
+        connected:
+          type: boolean
+        connectedAt:
+          type: ["string", "null"]
+      required:
+        - connected
+
     HealthStatus:
       type: object
       properties:

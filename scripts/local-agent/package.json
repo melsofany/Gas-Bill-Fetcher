@@ -1,0 +1,13 @@
+{
+  "name": "petrotrade-local-agent",
+  "version": "1.0.0",
+  "description": "وكيل محلي لاستخراج فواتير بيتروتريد من داخل مصر",
+  "type": "module",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.60.0",
+    "ws": "^8.21.0"
+  }
+}

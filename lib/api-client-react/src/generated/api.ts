@@ -21,6 +21,7 @@ import type {
 
 import type {
   AccountsResponse,
+  AgentStatus,
   ErrorResponse,
   HealthStatus,
   ProxySearchJob,
@@ -330,6 +331,83 @@ export function useGetJobStatus<TData = Awaited<ReturnType<typeof getJobStatus>>
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetJobStatusQueryOptions(jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetAgentStatusUrl = () => {
+
+
+
+
+  return `/api/agent/status`
+}
+
+/**
+ * @summary Check if local agent (inside Egypt) is connected
+ */
+export const getAgentStatus = async ( options?: RequestInit): Promise<AgentStatus> => {
+
+  return customFetch<AgentStatus>(getGetAgentStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAgentStatusQueryKey = () => {
+    return [
+    `/api/agent/status`
+    ] as const;
+    }
+
+
+export const getGetAgentStatusQueryOptions = <TData = Awaited<ReturnType<typeof getAgentStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAgentStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAgentStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAgentStatus>>> = ({ signal }) => getAgentStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAgentStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAgentStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getAgentStatus>>>
+export type GetAgentStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Check if local agent (inside Egypt) is connected
+ */
+
+export function useGetAgentStatus<TData = Awaited<ReturnType<typeof getAgentStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAgentStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAgentStatusQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

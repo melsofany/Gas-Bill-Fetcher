@@ -7,6 +7,7 @@
  */
 
 export * from './accountsResponse';
+export * from './agentStatus';
 export * from './errorResponse';
 export * from './healthStatus';
 export * from './invoiceResult';

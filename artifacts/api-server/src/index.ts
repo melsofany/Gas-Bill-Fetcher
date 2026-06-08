@@ -1,5 +1,8 @@
+import { createServer } from "http";
+import { WebSocketServer } from "ws";
 import app from "./app";
 import { logger } from "./lib/logger";
+import { agentRelay } from "./lib/agent-relay";
 
 const rawPort = process.env["PORT"];
 
@@ -15,11 +18,16 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-app.listen(port, (err) => {
-  if (err) {
-    logger.error({ err }, "Error listening on port");
-    process.exit(1);
-  }
+const server = createServer(app);
 
+const wss = new WebSocketServer({ server, path: "/api/agent/ws" });
+
+wss.on("connection", (ws) => {
+  agentRelay.registerAgent(ws);
+});
+
+setInterval(() => agentRelay.ping(), 30_000);
+
+server.listen(port, () => {
   logger.info({ port }, "Server listening");
 });

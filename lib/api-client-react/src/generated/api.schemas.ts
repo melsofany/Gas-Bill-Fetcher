@@ -5,6 +5,12 @@
  * Petrotrade Invoice Extractor API
  * OpenAPI spec version: 0.1.0
  */
+export interface AgentStatus {
+  connected: boolean;
+  /** @nullable */
+  connectedAt?: string | null;
+}
+
 export interface HealthStatus {
   status: string;
 }

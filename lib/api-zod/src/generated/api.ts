@@ -83,6 +83,15 @@ export const GetJobStatusResponse = zod.object({
 
 
 /**
+ * @summary Check if local agent (inside Egypt) is connected
+ */
+export const GetAgentStatusResponse = zod.object({
+  "connected": zod.boolean(),
+  "connectedAt": zod.string().nullish()
+})
+
+
+/**
  * @summary Start automatic Egyptian proxy search and test
  */
 export const FindProxyResponse = zod.object({

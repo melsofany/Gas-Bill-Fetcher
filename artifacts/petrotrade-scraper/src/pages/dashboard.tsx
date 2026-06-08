@@ -5,6 +5,7 @@ import {
   useGetJobStatus,
   useFindProxy,
   useGetProxySearchStatus,
+  useGetAgentStatus,
   getGetJobStatusQueryKey
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -12,16 +13,28 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Building2, Download, Play, AlertCircle, CheckCircle2, Clock, ChevronDown, ChevronUp, Wifi, Search, X } from "lucide-react";
+import { Building2, Download, Play, AlertCircle, CheckCircle2, Clock, ChevronDown, ChevronUp, Wifi, Search, X, Terminal, Zap } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+
+const SERVER_WS_URL = (() => {
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${window.location.host}`;
+})();
 
 export default function Dashboard() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [proxyUrl, setProxyUrl] = useState<string>("");
-  const [showProxySection, setShowProxySection] = useState(true);
+  const [showProxySection, setShowProxySection] = useState(false);
   const [proxySearchId, setProxySearchId] = useState<string | null>(null);
   const [proxySearchDone, setProxySearchDone] = useState(false);
+  const [showAgentInstructions, setShowAgentInstructions] = useState(false);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const { data: agentStatusData, refetch: refetchAgentStatus } = useGetAgentStatus({
+    query: { refetchInterval: 5000 }
+  });
+
+  const agentConnected = agentStatusData?.connected === true;
 
   const { data: accountsData, isLoading: isLoadingAccounts, error: accountsError } = useGetAccounts();
   const runScraperMutation = useRunScraper();
@@ -40,25 +53,18 @@ export default function Dashboard() {
     { query: { enabled: false, queryKey: ["proxySearch", proxySearchId] } }
   );
 
-  // Poll proxy search status every 2 seconds while searching
   useEffect(() => {
     if (!proxySearchId || proxySearchDone) return;
-
     pollIntervalRef.current = setInterval(async () => {
       const result = await refetchProxySearch();
       const data = result.data;
       if (data && (data.status === "found" || data.status === "not_found")) {
         setProxySearchDone(true);
         if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-        if (data.status === "found" && data.proxyUrl) {
-          setProxyUrl(data.proxyUrl);
-        }
+        if (data.status === "found" && data.proxyUrl) setProxyUrl(data.proxyUrl);
       }
     }, 2000);
-
-    return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-    };
+    return () => { if (pollIntervalRef.current) clearInterval(pollIntervalRef.current); };
   }, [proxySearchId, proxySearchDone, refetchProxySearch]);
 
   const handleStartExtraction = () => {
@@ -72,9 +78,7 @@ export default function Dashboard() {
     setProxySearchDone(false);
     setProxySearchId(null);
     findProxyMutation.mutate(undefined, {
-      onSuccess: (data) => {
-        setProxySearchId(data.searchId);
-      }
+      onSuccess: (data) => setProxySearchId(data.searchId)
     });
   };
 
@@ -104,6 +108,8 @@ export default function Dashboard() {
     errorSample.includes("net::ERR") ||
     errorSample.includes("ERR_CONNECTION");
 
+  const agentInstallCmd = `cd petrotrade-local-agent && npm install && node index.mjs --server ${SERVER_WS_URL}`;
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center py-10 px-4">
       <div className="w-full max-w-5xl space-y-5">
@@ -113,144 +119,203 @@ export default function Dashboard() {
           <div className="h-12 w-12 bg-primary rounded-xl flex items-center justify-center shadow-md shadow-primary/20 shrink-0">
             <Building2 className="h-6 w-6 text-white" />
           </div>
-          <div>
+          <div className="flex-1">
             <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">مستخرج فواتير بيتروتريد</h1>
             <p className="text-slate-500 text-sm">نظام استخراج آلي لبيانات الاستهلاك والمطالبات</p>
           </div>
         </div>
 
-        {/* Proxy Configuration Card */}
-        <Card className="border-amber-300 bg-amber-50">
+        {/* Agent Status Card */}
+        <Card className={agentConnected ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50"}>
           <button
             className="w-full flex items-center gap-3 px-5 py-3.5 text-right"
-            onClick={() => setShowProxySection(!showProxySection)}
+            onClick={() => setShowAgentInstructions(!showAgentInstructions)}
           >
-            <Wifi className="h-4 w-4 text-amber-600 shrink-0" />
-            <span className="text-sm font-semibold text-amber-900 flex-1 text-right">
-              إعداد البروكسي المصري
+            <Zap className={`h-4 w-4 shrink-0 ${agentConnected ? "text-emerald-600" : "text-amber-600"}`} />
+            <span className={`text-sm font-semibold flex-1 text-right ${agentConnected ? "text-emerald-900" : "text-amber-900"}`}>
+              الوكيل المحلي (داخل مصر)
             </span>
-            <span className="text-xs text-amber-700 font-normal ml-2">
-              {proxyUrl ? "✓ تم الإعداد" : "غير محدد"}
+            <span className={`text-xs font-medium flex items-center gap-1.5 ${agentConnected ? "text-emerald-700" : "text-amber-700"}`}>
+              <span className={`inline-block h-2 w-2 rounded-full ${agentConnected ? "bg-emerald-500 animate-pulse" : "bg-amber-400"}`} />
+              {agentConnected ? "متصل ✓" : "غير متصل"}
             </span>
-            {showProxySection
-              ? <ChevronUp className="h-4 w-4 text-amber-600 shrink-0" />
-              : <ChevronDown className="h-4 w-4 text-amber-600 shrink-0" />
+            {showAgentInstructions
+              ? <ChevronUp className={`h-4 w-4 shrink-0 ${agentConnected ? "text-emerald-600" : "text-amber-600"}`} />
+              : <ChevronDown className={`h-4 w-4 shrink-0 ${agentConnected ? "text-emerald-600" : "text-amber-600"}`} />
             }
           </button>
 
-          {showProxySection && (
+          {showAgentInstructions && (
             <CardContent className="px-5 pb-4 pt-0 space-y-3">
-              <p className="text-sm text-amber-800">
-                موقع بيتروتريد لا يعمل إلا من داخل مصر. يمكنك البحث تلقائياً عن بروكسي مصري أو إدخاله يدوياً.
-              </p>
-
-              {/* Auto-find button */}
-              <div className="flex gap-2">
-                {!isSearching ? (
-                  <Button
-                    onClick={handleFindProxy}
-                    disabled={findProxyMutation.isPending}
-                    className="bg-amber-600 hover:bg-amber-700 text-white text-sm h-9 px-4 flex items-center gap-2"
-                  >
-                    <Search className="h-4 w-4" />
-                    بحث تلقائي عن بروكسي
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={handleCancelSearch}
-                    variant="outline"
-                    className="border-amber-400 text-amber-800 text-sm h-9 px-4 flex items-center gap-2"
-                  >
-                    <X className="h-4 w-4" />
-                    إيقاف البحث
-                  </Button>
-                )}
-              </div>
-
-              {/* Search progress */}
-              {proxySearchId && proxySearchData && (
-                <div className="bg-white border border-amber-200 rounded-lg p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-amber-900">
-                      {searchStatus === "searching" && (
-                        <span className="flex items-center gap-1.5">
-                          <span className="h-3 w-3 rounded-full border-2 border-amber-500 border-t-transparent animate-spin inline-block" />
-                          جاري البحث...
-                        </span>
-                      )}
-                      {searchStatus === "found" && (
-                        <span className="flex items-center gap-1.5 text-emerald-700">
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          تم العثور على بروكسي!
-                        </span>
-                      )}
-                      {searchStatus === "not_found" && (
-                        <span className="flex items-center gap-1.5 text-red-700">
-                          <AlertCircle className="h-3.5 w-3.5" />
-                          لم يُعثر على بروكسي يعمل
-                        </span>
-                      )}
+              {agentConnected ? (
+                <div className="flex items-center gap-2 text-emerald-800 text-sm font-medium">
+                  <CheckCircle2 className="h-4 w-4" />
+                  الوكيل المحلي متصل — سيتم الاستخراج من جهازك داخل مصر مباشرةً دون الحاجة لبروكسي.
+                  {agentStatusData?.connectedAt && (
+                    <span className="text-xs text-emerald-600 font-normal">
+                      (منذ {new Date(agentStatusData.connectedAt).toLocaleTimeString("ar-EG")})
                     </span>
-                    {searchTotal > 0 && (
-                      <span className="text-xs text-amber-700 font-mono">
-                        {searchTested} / {searchTotal}
-                      </span>
-                    )}
-                  </div>
-                  {searchTotal > 0 && searchStatus === "searching" && (
-                    <Progress value={searchProgress} className="h-1.5" />
                   )}
-                  <p className="text-xs text-amber-800 leading-relaxed">{searchMessage}</p>
-                  {searchStatus === "found" && proxySearchData.proxyUrl && (
-                    <div className="bg-emerald-50 border border-emerald-200 rounded px-3 py-1.5">
-                      <p className="text-xs text-emerald-700 font-mono break-all" dir="ltr">
-                        {proxySearchData.proxyUrl}
-                      </p>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-amber-800">
+                    شغّل الوكيل المحلي على جهازك داخل مصر حتى يتصل بهذا السيرفر ويقوم بالاستخراج مباشرةً دون الحاجة لأي بروكسي.
+                  </p>
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-amber-900">خطوات التشغيل:</p>
+                    <ol className="text-xs text-amber-800 space-y-2 list-decimal list-inside">
+                      <li>
+                        تأكد أن Node.js مثبّت على جهازك
+                        <a href="https://nodejs.org" target="_blank" rel="noopener noreferrer" className="mr-1 text-amber-700 underline">
+                          nodejs.org
+                        </a>
+                      </li>
+                      <li>
+                        حمّل مجلد الوكيل من السيرفر أو انسخ مجلد <code className="bg-amber-100 px-1 rounded">scripts/local-agent</code>
+                      </li>
+                      <li>افتح Terminal وشغّل الأوامر التالية:</li>
+                    </ol>
+                    <div className="bg-slate-900 rounded-lg p-3 font-mono text-xs text-green-400 space-y-1" dir="ltr">
+                      <div className="text-slate-400"># داخل مجلد الوكيل</div>
+                      <div>npm install</div>
+                      <div>node index.mjs --server <span className="text-yellow-300">{SERVER_WS_URL}</span></div>
                     </div>
-                  )}
-                </div>
+                    <p className="text-xs text-amber-700">
+                      بعد التشغيل سترى رسالة <span className="font-mono bg-amber-100 px-1 rounded">✅ متصل بالسيرفر</span> ويتحوّل المؤشر أعلاه للأخضر.
+                    </p>
+                  </div>
+                </>
               )}
-
-              {/* Manual input */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-amber-900">أو أدخل رابط البروكسي يدوياً</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={proxyUrl}
-                    onChange={(e) => setProxyUrl(e.target.value)}
-                    placeholder="http://username:password@proxy.example.com:8080"
-                    className="flex-1 border border-amber-300 rounded-lg px-3 py-2 text-sm font-mono bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-400 text-left"
-                    dir="ltr"
-                  />
-                  {proxyUrl && (
-                    <button
-                      onClick={() => setProxyUrl("")}
-                      className="text-amber-600 hover:text-amber-800 px-2"
-                      title="مسح"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="bg-white/70 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
-                <p className="text-amber-700">
-                  💡 البروكسيات المجانية قد تكون غير مستقرة. للحصول على أفضل نتيجة استخدم بروكسي مصري مدفوع.
-                </p>
-              </div>
             </CardContent>
           )}
         </Card>
 
+        {/* Proxy Configuration Card (fallback) */}
+        {!agentConnected && (
+          <Card className="border-slate-200">
+            <button
+              className="w-full flex items-center gap-3 px-5 py-3.5 text-right"
+              onClick={() => setShowProxySection(!showProxySection)}
+            >
+              <Wifi className="h-4 w-4 text-slate-500 shrink-0" />
+              <span className="text-sm font-semibold text-slate-700 flex-1 text-right">
+                البديل: بروكسي مصري
+              </span>
+              <span className="text-xs text-slate-500">
+                {proxyUrl ? "✓ تم الإعداد" : "غير محدد"}
+              </span>
+              {showProxySection
+                ? <ChevronUp className="h-4 w-4 text-slate-400 shrink-0" />
+                : <ChevronDown className="h-4 w-4 text-slate-400 shrink-0" />
+              }
+            </button>
+
+            {showProxySection && (
+              <CardContent className="px-5 pb-4 pt-0 space-y-3">
+                <p className="text-sm text-slate-600">
+                  إذا تعذّر تشغيل الوكيل المحلي، يمكنك استخدام بروكسي مصري بدلاً منه.
+                </p>
+
+                <div className="flex gap-2">
+                  {!isSearching ? (
+                    <Button
+                      onClick={handleFindProxy}
+                      disabled={findProxyMutation.isPending}
+                      variant="outline"
+                      className="text-sm h-9 px-4 flex items-center gap-2"
+                    >
+                      <Search className="h-4 w-4" />
+                      بحث تلقائي عن بروكسي
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={handleCancelSearch}
+                      variant="outline"
+                      className="text-sm h-9 px-4 flex items-center gap-2"
+                    >
+                      <X className="h-4 w-4" />
+                      إيقاف البحث
+                    </Button>
+                  )}
+                </div>
+
+                {proxySearchId && proxySearchData && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-700">
+                        {searchStatus === "searching" && (
+                          <span className="flex items-center gap-1.5">
+                            <span className="h-3 w-3 rounded-full border-2 border-slate-400 border-t-transparent animate-spin inline-block" />
+                            جاري البحث...
+                          </span>
+                        )}
+                        {searchStatus === "found" && (
+                          <span className="flex items-center gap-1.5 text-emerald-700">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            تم العثور على بروكسي!
+                          </span>
+                        )}
+                        {searchStatus === "not_found" && (
+                          <span className="flex items-center gap-1.5 text-red-700">
+                            <AlertCircle className="h-3.5 w-3.5" />
+                            لم يُعثر على بروكسي يعمل
+                          </span>
+                        )}
+                      </span>
+                      {searchTotal > 0 && (
+                        <span className="text-xs text-slate-500 font-mono">
+                          {searchTested} / {searchTotal}
+                        </span>
+                      )}
+                    </div>
+                    {searchTotal > 0 && searchStatus === "searching" && (
+                      <Progress value={searchProgress} className="h-1.5" />
+                    )}
+                    <p className="text-xs text-slate-600 leading-relaxed">{searchMessage}</p>
+                    {searchStatus === "found" && proxySearchData.proxyUrl && (
+                      <div className="bg-emerald-50 border border-emerald-200 rounded px-3 py-1.5">
+                        <p className="text-xs text-emerald-700 font-mono break-all" dir="ltr">
+                          {proxySearchData.proxyUrl}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-700">أو أدخل رابط البروكسي يدوياً</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={proxyUrl}
+                      onChange={(e) => setProxyUrl(e.target.value)}
+                      placeholder="http://username:password@proxy.example.com:8080"
+                      className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300 text-left"
+                      dir="ltr"
+                    />
+                    {proxyUrl && (
+                      <button
+                        onClick={() => setProxyUrl("")}
+                        className="text-slate-400 hover:text-slate-600 px-2"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            )}
+          </Card>
+        )}
+
         {/* Geo-block warning */}
-        {(isFailed || isNetworkError) && activeJobId && (
+        {(isFailed || isNetworkError) && activeJobId && !agentConnected && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>فشل الاتصال بموقع بيتروتريد</AlertTitle>
             <AlertDescription>
-              الموقع محجوب من خارج مصر. استخدم زر "بحث تلقائي" أو أدخل رابط بروكسي مصري ثم أعد المحاولة.
+              الموقع محجوب من خارج مصر. شغّل الوكيل المحلي على جهازك أو استخدم بروكسي مصري ثم أعد المحاولة.
             </AlertDescription>
           </Alert>
         )}
@@ -269,6 +334,12 @@ export default function Dashboard() {
                   "لا توجد بيانات حسابات"
                 )}
               </p>
+              {agentConnected && (
+                <p className="text-xs text-emerald-600 font-medium mt-0.5 flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                  سيتم الاستخراج عبر الوكيل المحلي داخل مصر
+                </p>
+              )}
             </div>
 
             <Button
@@ -405,7 +476,7 @@ export default function Dashboard() {
                               <Badge variant="destructive" className="w-fit text-xs">خطأ</Badge>
                               <span className="text-xs text-red-600 truncate" title={result.error || ""}>
                                 {isNetworkError
-                                  ? "تعذر الوصول للموقع — مطلوب بروكسي مصري"
+                                  ? "تعذر الوصول للموقع — شغّل الوكيل المحلي"
                                   : (result.error || "").substring(0, 70)}
                               </span>
                             </div>
