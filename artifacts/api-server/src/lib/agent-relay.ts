@@ -130,6 +130,9 @@ class AgentRelay {
 
   ping() {
     if (this.isConnected()) {
+      // WebSocket protocol-level ping (keeps Replit proxy alive)
+      this.socket!.ping();
+      // Also send JSON ping for app-level keepalive
       this.socket!.send(JSON.stringify({ type: "ping" }));
     }
   }

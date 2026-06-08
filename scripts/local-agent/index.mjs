@@ -236,6 +236,17 @@ function connect() {
   ws.on("open", () => {
     console.log("✅  متصل بالسيرفر — الوكيل جاهز للعمل");
     reconnectDelay = 3000;
+
+    // إرسال ping كل 10 ثوانٍ لمنع انتهاء مهلة الـ proxy
+    const keepAlive = setInterval(() => {
+      if (ws.readyState === ws.OPEN) {
+        ws.ping();
+      } else {
+        clearInterval(keepAlive);
+      }
+    }, 10_000);
+
+    ws.on("close", () => clearInterval(keepAlive));
   });
 
   ws.on("message", (raw) => {

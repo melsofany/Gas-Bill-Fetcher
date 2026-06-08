@@ -26,7 +26,7 @@ wss.on("connection", (ws) => {
   agentRelay.registerAgent(ws);
 });
 
-setInterval(() => agentRelay.ping(), 30_000);
+setInterval(() => agentRelay.ping(), 10_000);
 
 server.listen(port, () => {
   logger.info({ port }, "Server listening");
