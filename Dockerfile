@@ -15,16 +15,16 @@ FROM node:22-slim
   # Install pnpm
   RUN npm install -g pnpm
 
-  # Copy ALL source (workspace needs all package.json files to resolve workspace:* deps)
+  # Copy all source so workspace:* deps and lockfile are available during install
   COPY . .
 
-  # Install dependencies
-  RUN pnpm install --frozen-lockfile
+  # Install without --frozen-lockfile so pnpm v10 reads onlyBuiltDependencies
+  # from pnpm-workspace.yaml and allows esbuild post-install script to run
+  RUN pnpm install --prefer-frozen-lockfile
 
-  # Build only the api-server (esbuild handles TS natively, no typecheck step needed)
+  # Build only the api-server
   RUN pnpm --filter @workspace/api-server run build
 
-  # Set working directory to api-server
   WORKDIR /app/artifacts/api-server
 
   EXPOSE 8080
