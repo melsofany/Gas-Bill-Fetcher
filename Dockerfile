@@ -34,11 +34,11 @@ FROM node:22-slim
 
   WORKDIR /app
 
-  # Install pnpm
+  # Install pnpm (v9 to match lockfile)
   RUN npm install -g pnpm@9
 
   # Copy package files
-  COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+  COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 
   # Install dependencies
   RUN pnpm install --frozen-lockfile
@@ -46,10 +46,7 @@ FROM node:22-slim
   # Copy source code
   COPY . .
 
-  # Build lib packages (generates type declarations needed by api-server)
-  RUN pnpm run typecheck:libs
-
-  # Build only the api-server (skip other artifacts that need PORT/BASE_PATH env vars at runtime)
+  # Build only the api-server using esbuild (no typecheck needed — esbuild handles TS natively)
   RUN pnpm --filter @workspace/api-server run build
 
   # Set working directory to API server
