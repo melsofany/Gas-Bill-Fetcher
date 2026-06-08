@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   useGetAccounts,
   useRunScraper,
   useGetJobStatus,
+  useFindProxy,
+  useGetProxySearchStatus,
   getGetJobStatusQueryKey
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -10,37 +12,84 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Building2, Download, Play, AlertCircle, CheckCircle2, Clock, ChevronDown, ChevronUp, Wifi } from "lucide-react";
+import { Building2, Download, Play, AlertCircle, CheckCircle2, Clock, ChevronDown, ChevronUp, Wifi, Search, X } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export default function Dashboard() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [proxyUrl, setProxyUrl] = useState<string>("");
   const [showProxySection, setShowProxySection] = useState(true);
+  const [proxySearchId, setProxySearchId] = useState<string | null>(null);
+  const [proxySearchDone, setProxySearchDone] = useState(false);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { data: accountsData, isLoading: isLoadingAccounts, error: accountsError } = useGetAccounts();
   const runScraperMutation = useRunScraper();
+  const findProxyMutation = useFindProxy();
 
   const { data: jobData, error: jobError } = useGetJobStatus(activeJobId || "", {
     query: {
       enabled: !!activeJobId,
-      refetchInterval: (query) => {
-        return query.state.data?.status === "running" ? 3000 : false;
-      },
+      refetchInterval: (query) => query.state.data?.status === "running" ? 3000 : false,
       queryKey: activeJobId ? getGetJobStatusQueryKey(activeJobId) : ["scraperJob", "empty"],
     }
   });
 
+  const { data: proxySearchData, refetch: refetchProxySearch } = useGetProxySearchStatus(
+    proxySearchId || "",
+    { query: { enabled: false, queryKey: ["proxySearch", proxySearchId] } }
+  );
+
+  // Poll proxy search status every 2 seconds while searching
+  useEffect(() => {
+    if (!proxySearchId || proxySearchDone) return;
+
+    pollIntervalRef.current = setInterval(async () => {
+      const result = await refetchProxySearch();
+      const data = result.data;
+      if (data && (data.status === "found" || data.status === "not_found")) {
+        setProxySearchDone(true);
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+        if (data.status === "found" && data.proxyUrl) {
+          setProxyUrl(data.proxyUrl);
+        }
+      }
+    }, 2000);
+
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, [proxySearchId, proxySearchDone, refetchProxySearch]);
+
   const handleStartExtraction = () => {
     runScraperMutation.mutate(
       { data: { proxyUrl: proxyUrl.trim() || undefined } },
-      {
-        onSuccess: (data) => {
-          setActiveJobId(data.jobId);
-        }
-      }
+      { onSuccess: (data) => setActiveJobId(data.jobId) }
     );
   };
+
+  const handleFindProxy = () => {
+    setProxySearchDone(false);
+    setProxySearchId(null);
+    findProxyMutation.mutate(undefined, {
+      onSuccess: (data) => {
+        setProxySearchId(data.searchId);
+      }
+    });
+  };
+
+  const handleCancelSearch = () => {
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    setProxySearchDone(true);
+    setProxySearchId(null);
+  };
+
+  const isSearching = !!proxySearchId && !proxySearchDone;
+  const searchStatus = proxySearchData?.status;
+  const searchTested = proxySearchData?.tested ?? 0;
+  const searchTotal = proxySearchData?.total ?? 0;
+  const searchMessage = proxySearchData?.message ?? "";
+  const searchProgress = searchTotal > 0 ? Math.round((searchTested / searchTotal) * 100) : 0;
 
   const isRunning = jobData?.status === "running";
   const isCompleted = jobData?.status === "completed";
@@ -75,14 +124,13 @@ export default function Dashboard() {
           <button
             className="w-full flex items-center gap-3 px-5 py-3.5 text-right"
             onClick={() => setShowProxySection(!showProxySection)}
-            data-testid="button-toggle-proxy"
           >
             <Wifi className="h-4 w-4 text-amber-600 shrink-0" />
             <span className="text-sm font-semibold text-amber-900 flex-1 text-right">
               إعداد البروكسي المصري
             </span>
             <span className="text-xs text-amber-700 font-normal ml-2">
-              {proxyUrl ? "تم الإعداد" : "غير محدد"}
+              {proxyUrl ? "✓ تم الإعداد" : "غير محدد"}
             </span>
             {showProxySection
               ? <ChevronUp className="h-4 w-4 text-amber-600 shrink-0" />
@@ -93,24 +141,104 @@ export default function Dashboard() {
           {showProxySection && (
             <CardContent className="px-5 pb-4 pt-0 space-y-3">
               <p className="text-sm text-amber-800">
-                موقع بيتروتريد لا يعمل إلا من داخل مصر. أدخل رابط بروكسي مصري لتمرير الطلبات عبره.
+                موقع بيتروتريد لا يعمل إلا من داخل مصر. يمكنك البحث تلقائياً عن بروكسي مصري أو إدخاله يدوياً.
               </p>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-amber-900">رابط البروكسي</label>
-                <input
-                  type="text"
-                  value={proxyUrl}
-                  onChange={(e) => setProxyUrl(e.target.value)}
-                  placeholder="http://username:password@proxy.example.com:8080"
-                  className="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm font-mono bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-400 text-left"
-                  dir="ltr"
-                  data-testid="input-proxy-url"
-                />
+
+              {/* Auto-find button */}
+              <div className="flex gap-2">
+                {!isSearching ? (
+                  <Button
+                    onClick={handleFindProxy}
+                    disabled={findProxyMutation.isPending}
+                    className="bg-amber-600 hover:bg-amber-700 text-white text-sm h-9 px-4 flex items-center gap-2"
+                  >
+                    <Search className="h-4 w-4" />
+                    بحث تلقائي عن بروكسي
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={handleCancelSearch}
+                    variant="outline"
+                    className="border-amber-400 text-amber-800 text-sm h-9 px-4 flex items-center gap-2"
+                  >
+                    <X className="h-4 w-4" />
+                    إيقاف البحث
+                  </Button>
+                )}
               </div>
-              <div className="bg-white/70 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 space-y-1">
-                <p className="font-semibold">مثال:</p>
-                <code className="block font-mono text-slate-700">http://user:pass@proxy-eg.example.com:8080</code>
-                <p className="mt-2 text-amber-700">بديل: انشر التطبيق على سيرفر داخل مصر حيث لا تحتاج بروكسي.</p>
+
+              {/* Search progress */}
+              {proxySearchId && proxySearchData && (
+                <div className="bg-white border border-amber-200 rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-amber-900">
+                      {searchStatus === "searching" && (
+                        <span className="flex items-center gap-1.5">
+                          <span className="h-3 w-3 rounded-full border-2 border-amber-500 border-t-transparent animate-spin inline-block" />
+                          جاري البحث...
+                        </span>
+                      )}
+                      {searchStatus === "found" && (
+                        <span className="flex items-center gap-1.5 text-emerald-700">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          تم العثور على بروكسي!
+                        </span>
+                      )}
+                      {searchStatus === "not_found" && (
+                        <span className="flex items-center gap-1.5 text-red-700">
+                          <AlertCircle className="h-3.5 w-3.5" />
+                          لم يُعثر على بروكسي يعمل
+                        </span>
+                      )}
+                    </span>
+                    {searchTotal > 0 && (
+                      <span className="text-xs text-amber-700 font-mono">
+                        {searchTested} / {searchTotal}
+                      </span>
+                    )}
+                  </div>
+                  {searchTotal > 0 && searchStatus === "searching" && (
+                    <Progress value={searchProgress} className="h-1.5" />
+                  )}
+                  <p className="text-xs text-amber-800 leading-relaxed">{searchMessage}</p>
+                  {searchStatus === "found" && proxySearchData.proxyUrl && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded px-3 py-1.5">
+                      <p className="text-xs text-emerald-700 font-mono break-all" dir="ltr">
+                        {proxySearchData.proxyUrl}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Manual input */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-amber-900">أو أدخل رابط البروكسي يدوياً</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={proxyUrl}
+                    onChange={(e) => setProxyUrl(e.target.value)}
+                    placeholder="http://username:password@proxy.example.com:8080"
+                    className="flex-1 border border-amber-300 rounded-lg px-3 py-2 text-sm font-mono bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-400 text-left"
+                    dir="ltr"
+                  />
+                  {proxyUrl && (
+                    <button
+                      onClick={() => setProxyUrl("")}
+                      className="text-amber-600 hover:text-amber-800 px-2"
+                      title="مسح"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white/70 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+                <p className="text-amber-700">
+                  💡 البروكسيات المجانية قد تكون غير مستقرة. للحصول على أفضل نتيجة استخدم بروكسي مصري مدفوع.
+                </p>
               </div>
             </CardContent>
           )}
@@ -122,7 +250,7 @@ export default function Dashboard() {
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>فشل الاتصال بموقع بيتروتريد</AlertTitle>
             <AlertDescription>
-              الموقع محجوب من خارج مصر. أدخل رابط بروكسي مصري في الإعدادات أعلاه ثم أعد المحاولة.
+              الموقع محجوب من خارج مصر. استخدم زر "بحث تلقائي" أو أدخل رابط بروكسي مصري ثم أعد المحاولة.
             </AlertDescription>
           </Alert>
         )}
@@ -147,7 +275,6 @@ export default function Dashboard() {
               onClick={handleStartExtraction}
               disabled={isLoadingAccounts || isRunning || runScraperMutation.isPending || !accountsData?.count}
               className="w-full sm:w-auto bg-amber-500 hover:bg-amber-600 text-white font-bold h-11 px-8 shadow"
-              data-testid="button-start-extraction"
             >
               {runScraperMutation.isPending ? (
                 "جاري الإطلاق..."
@@ -217,7 +344,6 @@ export default function Dashboard() {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 text-white rounded-md text-sm font-bold h-10 px-6 transition-colors shadow"
-                    data-testid="link-download-pdf"
                   >
                     <Download className="h-4 w-4" />
                     تحميل تقرير PDF
@@ -259,7 +385,6 @@ export default function Dashboard() {
                     {jobData.results.map((result, idx) => (
                       <TableRow
                         key={`${result.accountNumber}-${idx}`}
-                        data-testid={`row-result-${idx}`}
                         className={
                           result.status === "error" ? "bg-red-50/60" :
                           result.status === "pending" ? "opacity-60" : ""

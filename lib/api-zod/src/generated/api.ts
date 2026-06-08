@@ -83,6 +83,36 @@ export const GetJobStatusResponse = zod.object({
 
 
 /**
+ * @summary Start automatic Egyptian proxy search and test
+ */
+export const FindProxyResponse = zod.object({
+  "searchId": zod.string(),
+  "status": zod.enum(['searching', 'found', 'not_found']),
+  "tested": zod.number(),
+  "total": zod.number(),
+  "message": zod.string(),
+  "proxyUrl": zod.string().nullish()
+})
+
+
+/**
+ * @summary Get proxy search job status
+ */
+export const GetProxySearchStatusParams = zod.object({
+  "searchId": zod.coerce.string()
+})
+
+export const GetProxySearchStatusResponse = zod.object({
+  "searchId": zod.string(),
+  "status": zod.enum(['searching', 'found', 'not_found']),
+  "tested": zod.number(),
+  "total": zod.number(),
+  "message": zod.string(),
+  "proxyUrl": zod.string().nullish()
+})
+
+
+/**
  * @summary Download PDF report for completed job
  */
 export const DownloadPdfParams = zod.object({

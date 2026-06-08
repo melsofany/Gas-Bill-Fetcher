@@ -83,6 +83,25 @@ export interface ScraperJob {
   pdfReady: boolean;
 }
 
+export type ProxySearchJobStatus = typeof ProxySearchJobStatus[keyof typeof ProxySearchJobStatus];
+
+
+export const ProxySearchJobStatus = {
+  searching: 'searching',
+  found: 'found',
+  not_found: 'not_found',
+} as const;
+
+export interface ProxySearchJob {
+  searchId: string;
+  status: ProxySearchJobStatus;
+  tested: number;
+  total: number;
+  message: string;
+  /** @nullable */
+  proxyUrl?: string | null;
+}
+
 export interface ErrorResponse {
   error: string;
 }

@@ -4,6 +4,8 @@ import { google } from "googleapis";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import * as http from "http";
+import * as net from "net";
 import { randomUUID } from "crypto";
 
 /**
@@ -60,6 +62,148 @@ interface ScraperJob {
 const jobs = new Map<string, ScraperJob>();
 const pdfPaths = new Map<string, string>();
 const proxyUrls = new Map<string, string>();
+
+interface ProxySearchJob {
+  searchId: string;
+  status: "searching" | "found" | "not_found";
+  tested: number;
+  total: number;
+  message: string;
+  proxyUrl: string | null;
+}
+
+const proxySearchJobs = new Map<string, ProxySearchJob>();
+
+/** Quick TCP reachability check — resolves true if port accepts a connection within timeoutMs */
+function tcpPing(host: string, port: number, timeoutMs = 4000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = new net.Socket();
+    sock.setTimeout(timeoutMs);
+    sock.once("connect", () => { sock.destroy(); resolve(true); });
+    sock.once("error", () => { sock.destroy(); resolve(false); });
+    sock.once("timeout", () => { sock.destroy(); resolve(false); });
+    sock.connect(port, host);
+  });
+}
+
+/**
+ * Tests whether an HTTP proxy can establish a CONNECT tunnel to petrotrade.com.eg:443.
+ * Returns true only when the proxy responds 200 Connection established.
+ */
+function testProxyConnect(proxyUrl: string, timeoutMs = 8000): Promise<boolean> {
+  return new Promise((resolve) => {
+    let parsed: URL;
+    try { parsed = new URL(proxyUrl); } catch { resolve(false); return; }
+
+    const proxyHost = parsed.hostname;
+    const proxyPort = parseInt(parsed.port) || 80;
+    const auth = parsed.username
+      ? Buffer.from(`${decodeURIComponent(parsed.username)}:${decodeURIComponent(parsed.password)}`).toString("base64")
+      : null;
+
+    const timer = setTimeout(() => { req.destroy(); resolve(false); }, timeoutMs);
+
+    const req = http.request({
+      host: proxyHost,
+      port: proxyPort,
+      method: "CONNECT",
+      path: "www.petrotrade.com.eg:443",
+      headers: {
+        Host: "www.petrotrade.com.eg:443",
+        ...(auth ? { "Proxy-Authorization": `Basic ${auth}` } : {}),
+      },
+    });
+
+    req.on("connect", (res) => {
+      clearTimeout(timer);
+      req.destroy();
+      resolve(res.statusCode === 200);
+    });
+
+    req.on("error", () => { clearTimeout(timer); resolve(false); });
+    req.end();
+  });
+}
+
+/** Fetches a raw list of proxies from multiple free sources, returns unique "host:port" strings */
+async function fetchRawProxyList(): Promise<string[]> {
+  const sources = [
+    // ProxyScrape — Egyptian HTTP proxies
+    "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=EG&anonymity=all",
+    // ProxyScrape — all countries (fallback)
+    "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=5000&country=all&anonymity=elite&ssl=yes",
+    // Clarketm proxy list
+    "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt",
+  ];
+
+  const results = new Set<string>();
+
+  await Promise.allSettled(
+    sources.map(async (url) => {
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        if (!res.ok) return;
+        const text = await res.text();
+        for (const line of text.split(/\r?\n/)) {
+          const trimmed = line.trim();
+          // Match host:port lines (IPv4 only to keep it clean)
+          if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{2,5}$/.test(trimmed)) {
+            results.add(trimmed);
+          }
+        }
+      } catch { /* ignore individual source failures */ }
+    })
+  );
+
+  return Array.from(results);
+}
+
+async function runProxySearch(searchId: string) {
+  const job = proxySearchJobs.get(searchId)!;
+
+  try {
+    job.message = "جاري جلب قوائم البروكسي...";
+    const rawList = await fetchRawProxyList();
+
+    if (rawList.length === 0) {
+      job.status = "not_found";
+      job.message = "لم يتم العثور على أي بروكسي من مصادر البيانات المجانية. جرّب إدخال بروكسي يدوياً.";
+      return;
+    }
+
+    job.total = rawList.length;
+    job.message = `جاري اختبار ${rawList.length} بروكسي...`;
+
+    for (let i = 0; i < rawList.length; i++) {
+      const entry = rawList[i];
+      job.tested = i + 1;
+      job.message = `جاري اختبار ${i + 1} من ${rawList.length}: ${entry}`;
+
+      const [host, portStr] = entry.split(":");
+      const port = parseInt(portStr);
+
+      // Fast TCP ping first
+      const reachable = await tcpPing(host, port, 3000);
+      if (!reachable) continue;
+
+      // CONNECT tunnel test
+      const proxyUrl = `http://${entry}`;
+      const works = await testProxyConnect(proxyUrl, 8000);
+      if (works) {
+        job.status = "found";
+        job.proxyUrl = proxyUrl;
+        job.message = `تم العثور على بروكسي يعمل: ${entry}`;
+        return;
+      }
+    }
+
+    job.status = "not_found";
+    job.message = `تم اختبار ${rawList.length} بروكسي ولم يعمل أي منها. الموقع قد يكون مقيداً جداً. جرّب بروكسي مدفوع مصري.`;
+  } catch (err) {
+    job.status = "not_found";
+    job.message = `خطأ في عملية البحث: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
 
 async function getAccountsFromSheet(): Promise<string[]> {
   const credsBase64 = process.env.GOOGLE_CREDENTIALS_BASE64;
@@ -713,6 +857,42 @@ router.get("/scraper/status/:jobId", (req: Request, res: Response) => {
     return;
   }
 
+  res.json(job);
+});
+
+// POST /api/scraper/find-proxy
+router.post("/scraper/find-proxy", (req: Request, res: Response) => {
+  const searchId = randomUUID();
+  const job: ProxySearchJob = {
+    searchId,
+    status: "searching",
+    tested: 0,
+    total: 0,
+    message: "جاري الاستعداد...",
+    proxyUrl: null,
+  };
+  proxySearchJobs.set(searchId, job);
+
+  // Run in background
+  runProxySearch(searchId).catch((err) => {
+    const j = proxySearchJobs.get(searchId);
+    if (j) {
+      j.status = "not_found";
+      j.message = `خطأ: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  });
+
+  res.json(job);
+});
+
+// GET /api/scraper/proxy-search/:searchId
+router.get("/scraper/proxy-search/:searchId", (req: Request, res: Response) => {
+  const searchId = req.params["searchId"] as string;
+  const job = proxySearchJobs.get(searchId);
+  if (!job) {
+    res.status(404).json({ error: "Search job not found" });
+    return;
+  }
   res.json(job);
 });
 

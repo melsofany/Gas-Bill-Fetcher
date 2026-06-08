@@ -94,6 +94,44 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /scraper/find-proxy:
+    post:
+      operationId: findProxy
+      tags: [scraper]
+      summary: Start automatic Egyptian proxy search and test
+      responses:
+        "200":
+          description: Proxy search started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProxySearchJob"
+
+  /scraper/proxy-search/{searchId}:
+    get:
+      operationId: getProxySearchStatus
+      tags: [scraper]
+      summary: Get proxy search job status
+      parameters:
+        - name: searchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Search status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProxySearchJob"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /scraper/pdf/{jobId}:
     get:
       operationId: downloadPdf
@@ -214,6 +252,29 @@ components:
         - results
         - startedAt
         - pdfReady
+
+    ProxySearchJob:
+      type: object
+      properties:
+        searchId:
+          type: string
+        status:
+          type: string
+          enum: [searching, found, not_found]
+        tested:
+          type: integer
+        total:
+          type: integer
+        message:
+          type: string
+        proxyUrl:
+          type: ["string", "null"]
+      required:
+        - searchId
+        - status
+        - tested
+        - total
+        - message
 
     ErrorResponse:
       type: object

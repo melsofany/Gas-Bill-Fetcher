@@ -11,6 +11,8 @@ export * from './errorResponse';
 export * from './healthStatus';
 export * from './invoiceResult';
 export * from './invoiceResultStatus';
+export * from './proxySearchJob';
+export * from './proxySearchJobStatus';
 export * from './scraperJob';
 export * from './scraperJobStatus';
 export * from './scraperRunInput';

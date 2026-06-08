@@ -23,6 +23,7 @@ import type {
   AccountsResponse,
   ErrorResponse,
   HealthStatus,
+  ProxySearchJob,
   ScraperJob,
   ScraperRunInput
 } from './api.schemas';
@@ -329,6 +330,153 @@ export function useGetJobStatus<TData = Awaited<ReturnType<typeof getJobStatus>>
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetJobStatusQueryOptions(jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getFindProxyUrl = () => {
+
+
+
+
+  return `/api/scraper/find-proxy`
+}
+
+/**
+ * @summary Start automatic Egyptian proxy search and test
+ */
+export const findProxy = async ( options?: RequestInit): Promise<ProxySearchJob> => {
+
+  return customFetch<ProxySearchJob>(getFindProxyUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getFindProxyMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof findProxy>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof findProxy>>, TError,void, TContext> => {
+
+const mutationKey = ['findProxy'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof findProxy>>, void> = () => {
+
+
+          return  findProxy(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type FindProxyMutationResult = NonNullable<Awaited<ReturnType<typeof findProxy>>>
+
+    export type FindProxyMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Start automatic Egyptian proxy search and test
+ */
+export const useFindProxy = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof findProxy>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof findProxy>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getFindProxyMutationOptions(options));
+    }
+
+export const getGetProxySearchStatusUrl = (searchId: string,) => {
+
+
+
+
+  return `/api/scraper/proxy-search/${searchId}`
+}
+
+/**
+ * @summary Get proxy search job status
+ */
+export const getProxySearchStatus = async (searchId: string, options?: RequestInit): Promise<ProxySearchJob> => {
+
+  return customFetch<ProxySearchJob>(getGetProxySearchStatusUrl(searchId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetProxySearchStatusQueryKey = (searchId: string,) => {
+    return [
+    `/api/scraper/proxy-search/${searchId}`
+    ] as const;
+    }
+
+
+export const getGetProxySearchStatusQueryOptions = <TData = Awaited<ReturnType<typeof getProxySearchStatus>>, TError = ErrorType<ErrorResponse>>(searchId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProxySearchStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProxySearchStatusQueryKey(searchId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProxySearchStatus>>> = ({ signal }) => getProxySearchStatus(searchId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(searchId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProxySearchStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetProxySearchStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getProxySearchStatus>>>
+export type GetProxySearchStatusQueryError = ErrorType<ErrorResponse>
+
+
+/**
+ * @summary Get proxy search job status
+ */
+
+export function useGetProxySearchStatus<TData = Awaited<ReturnType<typeof getProxySearchStatus>>, TError = ErrorType<ErrorResponse>>(
+ searchId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProxySearchStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetProxySearchStatusQueryOptions(searchId,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
