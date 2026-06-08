@@ -224,7 +224,7 @@ async function getAccountsFromSheet(): Promise<string[]> {
   const sheets = google.sheets({ version: "v4", auth });
 
   const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: sheetId,
+    spreadsheetId: sheetId || "1YZK*****AE",
     range: "DATA!B2:B1000",
   });
 
@@ -257,30 +257,27 @@ async function scrapeInvoice(
     await page.waitForTimeout(2000);
 
     // Enter account number - 16 digits, 2 per field (auto-tab)
+    // The user mentioned: "كل رقمين في خانه من الشمال لليمين وللعلم هو مزود بAUTO TAB"
     const chunks: string[] = [];
     for (let i = 0; i < accountNumber.length; i += 2) {
       chunks.push(accountNumber.substring(i, i + 2));
     }
 
-    // Find input fields for account number
-    const inputs = page.locator('input[type="text"], input[type="number"], input:not([type])');
+    // Petrotrade account number inputs are usually 8 fields of 2 digits each
+    const inputs = page.locator('input[type="text"], input[type="number"]');
     const inputCount = await inputs.count();
 
     if (inputCount >= 8) {
-      // Fill each 2-digit chunk in a separate input box
-      for (let i = 0; i < Math.min(chunks.length, inputCount); i++) {
-        await inputs.nth(i).click();
-        await inputs.nth(i).fill(chunks[i]);
-        await page.waitForTimeout(200);
+      for (let i = 0; i < 8; i++) {
+        await inputs.nth(i).fill(chunks[i] || "");
+        // Auto-tab might be handled by the site, but we fill explicitly for safety
       }
     } else {
-      // Try typing all digits into a single field
-      const firstInput = inputs.first();
-      await firstInput.click();
-      await firstInput.fill(accountNumber);
+      // Fallback for single input or different layout
+      await inputs.first().fill(accountNumber);
     }
 
-    // Press Enter to search
+    // Press Enter as requested
     await page.keyboard.press("Enter");
     await page.waitForTimeout(3000);
 
@@ -783,10 +780,22 @@ async function runScraperJob(jobId: string, accounts: string[]) {
     // Use system Chromium from Nix store (avoids missing shared library issues on NixOS/Replit)
     const nixChromium = findNixChromium();
 
-    // HTTP proxy support — from request body (proxyUrls map) or env var PLAYWRIGHT_HTTP_PROXY
-    // e.g. http://user:pass@proxy.eg:8080
-    const httpProxy = proxyUrls.get(jobId) || process.env["PLAYWRIGHT_HTTP_PROXY"];
-    const proxyConfig = httpProxy ? { server: httpProxy } : undefined;
+    // HTTP proxy support from user provided Bright Data proxy
+    const proxyServer = process.env.BRIGHT_DATA_PROXY;
+    const proxyUser = process.env.BRIGHT_DATA_USER;
+    const proxyPass = process.env.BRIGHT_DATA_PASS;
+    
+    let proxyConfig = undefined;
+    if (proxyServer && proxyUser && proxyPass) {
+      proxyConfig = {
+        server: `http://${proxyServer}`,
+        username: proxyUser,
+        password: proxyPass
+      };
+    } else {
+      const httpProxy = proxyUrls.get(jobId) || process.env["PLAYWRIGHT_HTTP_PROXY"];
+      if (httpProxy) proxyConfig = { server: httpProxy };
+    }
 
     browser = await chromium.launch({
       headless: true,
