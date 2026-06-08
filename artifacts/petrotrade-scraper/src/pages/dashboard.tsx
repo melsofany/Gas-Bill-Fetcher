@@ -18,7 +18,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const SERVER_WS_URL = (() => {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${window.location.host}`;
+  // hostname بدون port — الـ API server دايماً على port 80/443
+  return `${proto}://${window.location.hostname}`;
 })();
 
 export default function Dashboard() {
