@@ -7,6 +7,33 @@ import * as path from "path";
 import * as os from "os";
 import { randomUUID } from "crypto";
 
+/**
+ * Finds the system Chromium executable from the Nix store.
+ * Falls back to undefined (letting Playwright use its bundled browser).
+ */
+function findNixChromium(): string | undefined {
+  const nixStore = "/nix/store";
+  if (!fs.existsSync(nixStore)) return undefined;
+
+  try {
+    const entries = fs.readdirSync(nixStore);
+    // Find chromium packages (not sandbox, not dev/src)
+    const chromiumPkgs = entries
+      .filter((e) => /^[a-z0-9]+-chromium-\d+/.test(e))
+      .filter((e) => !/sandbox|dev|src|drv/.test(e))
+      .sort()
+      .reverse(); // newest first (hash-sorted, good enough)
+
+    for (const pkg of chromiumPkgs) {
+      const bin = path.join(nixStore, pkg, "bin", "chromium");
+      if (fs.existsSync(bin)) return bin;
+    }
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
 const router: IRouter = Router();
 
 interface InvoiceResult {
@@ -33,6 +60,7 @@ interface ScraperJob {
 
 const jobs = new Map<string, ScraperJob>();
 const pdfPaths = new Map<string, string>();
+const proxyUrls = new Map<string, string>();
 
 async function getAccountsFromSheet(): Promise<string[]> {
   const credsBase64 = process.env.GOOGLE_CREDENTIALS_BASE64;
@@ -381,9 +409,24 @@ async function runScraperJob(jobId: string, accounts: string[]) {
   let browser: import("playwright").Browser | null = null;
 
   try {
+    // Use system Chromium from Nix store (avoids missing shared library issues on NixOS/Replit)
+    const nixChromium = findNixChromium();
+
+    // HTTP proxy support — from request body (proxyUrls map) or env var PLAYWRIGHT_HTTP_PROXY
+    // e.g. http://user:pass@proxy.eg:8080
+    const httpProxy = proxyUrls.get(jobId) || process.env["PLAYWRIGHT_HTTP_PROXY"];
+    const proxyConfig = httpProxy ? { server: httpProxy } : undefined;
+
     browser = await chromium.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+      executablePath: nixChromium,
+      proxy: proxyConfig,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+      ],
     });
 
     const context = await browser.newContext({
@@ -441,6 +484,7 @@ router.get("/scraper/accounts", async (req: Request, res: Response) => {
 router.post("/scraper/run", async (req: Request, res: Response) => {
   try {
     let accounts: string[] = req.body?.accounts;
+    const proxyUrl: string | undefined = req.body?.proxyUrl;
 
     if (!accounts || accounts.length === 0) {
       accounts = await getAccountsFromSheet();
@@ -452,6 +496,9 @@ router.post("/scraper/run", async (req: Request, res: Response) => {
     }
 
     const jobId = randomUUID();
+    // Store proxyUrl alongside job using a separate map
+    if (proxyUrl) proxyUrls.set(jobId, proxyUrl);
+
     const job: ScraperJob = {
       jobId,
       status: "running",

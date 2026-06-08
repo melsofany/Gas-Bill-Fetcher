@@ -29,7 +29,8 @@ export const GetAccountsResponse = zod.object({
  * @summary Start scraping invoices for all accounts
  */
 export const RunScraperBody = zod.object({
-  "accounts": zod.array(zod.string()).optional().describe('Optional subset of accounts to scrape')
+  "accounts": zod.array(zod.string()).optional().describe('Optional subset of accounts to scrape'),
+  "proxyUrl": zod.string().optional().describe('HTTP proxy URL for geo-restricted access (e.g. http:\/\/user:pass@proxy-eg:8080)')
 })
 
 export const RunScraperResponse = zod.object({

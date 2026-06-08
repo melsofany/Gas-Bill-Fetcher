@@ -151,6 +151,9 @@ components:
           items:
             type: string
           description: Optional subset of accounts to scrape
+        proxyUrl:
+          type: string
+          description: "HTTP proxy URL for geo-restricted access (e.g. http://user:pass@proxy-eg:8080)"
 
     InvoiceResult:
       type: object

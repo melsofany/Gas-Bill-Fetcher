@@ -9,4 +9,6 @@
 export interface ScraperRunInput {
   /** Optional subset of accounts to scrape */
   accounts?: string[];
+  /** HTTP proxy URL for geo-restricted access (e.g. http://user:pass@proxy-eg:8080) */
+  proxyUrl?: string;
 }
