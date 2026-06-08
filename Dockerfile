@@ -15,13 +15,14 @@ FROM node:22-slim
   # Install pnpm
   RUN npm install -g pnpm
 
-  # Copy all source first (workspace:* deps need all package.json files)
+  # Copy all source
   COPY . .
 
-  # Install using lockfile if present, but allow build scripts from pnpm-workspace.yaml
-  # Plain pnpm install (no --frozen-lockfile) reads onlyBuiltDependencies from
-  # pnpm-workspace.yaml and allows esbuild to run its post-install script
-  RUN pnpm install
+  # Install all packages but skip post-install scripts (avoids pnpm v10 build approval issues)
+  RUN pnpm install --ignore-scripts
+
+  # Manually run esbuild's post-install script to download the native binary
+  RUN node node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild/install.js
 
   # Build only the api-server
   RUN pnpm --filter @workspace/api-server run build
