@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "4Is4TO2Td3cYK8DLDB0Oj"
+uri = "file://test_report.pdf"
+type = "pdf"
+title = "نموذج تقرير فواتير بيتروتريد (PDF)"

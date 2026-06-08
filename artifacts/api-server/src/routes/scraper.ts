@@ -1,7 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { chromium } from "playwright";
 import { google } from "googleapis";
-import PDFDocument from "pdfkit";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -305,92 +304,271 @@ async function scrapeInvoice(
   }
 }
 
+function buildReportHTML(job: ScraperJob): string {
+  const now = new Date();
+  const reportDate = now.toLocaleDateString("ar-EG", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  const successCount = job.results.filter((r) => r.status === "success").length;
+  const errorCount = job.results.filter((r) => r.status === "error").length;
+
+  const rows = job.results
+    .map((r, idx) => {
+      const isError = r.status === "error";
+      const rowBg = isError ? "#fff5f5" : idx % 2 === 0 ? "#f8fafc" : "#ffffff";
+      const textColor = isError ? "#dc2626" : "#1e293b";
+      return `
+      <tr style="background:${rowBg}; color:${textColor};">
+        <td>${escapeHtml(r.accountNumber)}</td>
+        <td>${escapeHtml(r.issueMonth ?? "—")}</td>
+        <td>${escapeHtml(r.consumption ?? "—")}</td>
+        <td>${escapeHtml(r.creditAdjustment ?? "—")}</td>
+        <td>${escapeHtml(r.advanceBalance ?? "—")}</td>
+        <td class="amount">${escapeHtml(r.amount ?? "—")}</td>
+        <td>
+          ${isError
+            ? `<span class="badge error">خطأ</span>`
+            : r.status === "success"
+            ? `<span class="badge success">ناجح</span>`
+            : `<span class="badge pending">قيد الانتظار</span>`}
+        </td>
+      </tr>`;
+    })
+    .join("");
+
+  return `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Cairo', 'Segoe UI', Arial, sans-serif;
+    direction: rtl;
+    color: #1e293b;
+    background: #fff;
+    padding: 32px 40px;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding-bottom: 20px;
+    border-bottom: 3px solid #1e3a5f;
+    margin-bottom: 24px;
+  }
+  .logo-box {
+    width: 52px; height: 52px;
+    background: #1e3a5f;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .logo-box svg { width: 28px; height: 28px; fill: white; }
+  .header-text h1 {
+    font-size: 20px; font-weight: 800; color: #1e3a5f;
+  }
+  .header-text p { font-size: 12px; color: #64748b; margin-top: 2px; }
+  .meta {
+    display: flex; gap: 32px;
+    background: #f1f5f9;
+    border-radius: 10px;
+    padding: 14px 20px;
+    margin-bottom: 24px;
+  }
+  .meta-item { display: flex; flex-direction: column; }
+  .meta-label { font-size: 11px; color: #64748b; }
+  .meta-value { font-size: 15px; font-weight: 700; color: #1e3a5f; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  thead tr {
+    background: #1e3a5f;
+    color: white;
+  }
+  thead th {
+    padding: 10px 10px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 8px 10px;
+    text-align: center;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 12px;
+  }
+  td:first-child { font-family: monospace; font-size: 11px; }
+  .amount { font-weight: 700; }
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge.success { background: #dcfce7; color: #16a34a; }
+  .badge.error   { background: #fee2e2; color: #dc2626; }
+  .badge.pending { background: #f1f5f9; color: #64748b; }
+  .summary {
+    margin-top: 24px;
+    display: flex;
+    gap: 16px;
+  }
+  .summary-card {
+    flex: 1;
+    border-radius: 10px;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+  }
+  .summary-card.total  { background: #eff6ff; }
+  .summary-card.ok     { background: #f0fdf4; }
+  .summary-card.failed { background: #fef2f2; }
+  .summary-card .num {
+    font-size: 28px; font-weight: 800;
+  }
+  .summary-card.total  .num { color: #1e3a5f; }
+  .summary-card.ok     .num { color: #16a34a; }
+  .summary-card.failed .num { color: #dc2626; }
+  .summary-card .lbl { font-size: 12px; color: #64748b; margin-top: 2px; }
+  .footer {
+    margin-top: 32px;
+    padding-top: 12px;
+    border-top: 1px solid #e2e8f0;
+    text-align: center;
+    font-size: 11px;
+    color: #94a3b8;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo-box">
+    <svg viewBox="0 0 24 24"><path d="M3 3h18v4H3V3zm0 6h18v12H3V9zm4 3v6h4v-6H7zm6 0v6h4v-6h-4z"/></svg>
+  </div>
+  <div class="header-text">
+    <h1>تقرير فواتير الغاز — بيتروتريد</h1>
+    <p>نظام الاستخراج الآلي لبيانات الاستهلاك والمطالبات</p>
+  </div>
+</div>
+
+<div class="meta">
+  <div class="meta-item">
+    <span class="meta-label">تاريخ التقرير</span>
+    <span class="meta-value">${reportDate}</span>
+  </div>
+  <div class="meta-item">
+    <span class="meta-label">عدد الحسابات</span>
+    <span class="meta-value">${job.totalAccounts}</span>
+  </div>
+  <div class="meta-item">
+    <span class="meta-label">تاريخ البدء</span>
+    <span class="meta-value">${new Date(job.startedAt).toLocaleTimeString("ar-EG")}</span>
+  </div>
+  ${job.completedAt ? `
+  <div class="meta-item">
+    <span class="meta-label">تاريخ الانتهاء</span>
+    <span class="meta-value">${new Date(job.completedAt).toLocaleTimeString("ar-EG")}</span>
+  </div>` : ""}
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>رقم الحساب</th>
+      <th>شهر الإصدار</th>
+      <th>الاستهلاك</th>
+      <th>تسوية مدينة</th>
+      <th>رصيد دفعات مقدمة</th>
+      <th>القيمة</th>
+      <th>الحالة</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${rows}
+  </tbody>
+</table>
+
+<div class="summary">
+  <div class="summary-card total">
+    <span class="num">${job.totalAccounts}</span>
+    <span class="lbl">إجمالي الحسابات</span>
+  </div>
+  <div class="summary-card ok">
+    <span class="num">${successCount}</span>
+    <span class="lbl">حسابات ناجحة</span>
+  </div>
+  <div class="summary-card failed">
+    <span class="num">${errorCount}</span>
+    <span class="lbl">حسابات بخطأ</span>
+  </div>
+</div>
+
+<div class="footer">
+  تم إنشاء هذا التقرير بواسطة نظام مستخرج فواتير بيتروتريد — ${reportDate}
+</div>
+
+</body>
+</html>`;
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 async function generatePDF(job: ScraperJob): Promise<string> {
   const tmpDir = os.tmpdir();
   const pdfPath = path.join(tmpDir, `petrotrade_${job.jobId}.pdf`);
+  const htmlPath = path.join(tmpDir, `petrotrade_${job.jobId}.html`);
 
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({
-      size: "A4",
-      margin: 40,
-      info: {
-        Title: "تقرير فواتير بيتروتريد",
-        Author: "Petrotrade Invoice Extractor",
-      },
-    });
+  // Write HTML to a temp file
+  const html = buildReportHTML(job);
+  fs.writeFileSync(htmlPath, html, "utf8");
 
-    const stream = fs.createWriteStream(pdfPath);
-    doc.pipe(stream);
+  const nixChromium = findNixChromium();
 
-    // Title
-    doc.fontSize(20).text("تقرير فواتير الغاز - بيتروتريد", { align: "center" });
-    doc.moveDown(0.5);
-    doc.fontSize(12).text(`تاريخ التقرير: ${new Date().toLocaleDateString("ar-EG")}`, { align: "center" });
-    doc.fontSize(12).text(`عدد الحسابات: ${job.totalAccounts}`, { align: "center" });
-    doc.moveDown(1);
-
-    // Table header
-    const tableTop = doc.y;
-    const colWidths = [80, 80, 80, 80, 80, 100];
-    const headers = ["رقم الحساب", "الاستهلاك", "تسوية مدينة", "رصيد دفعات", "القيمة", "شهر الإصدار"];
-    const startX = 40;
-
-    // Draw header background
-    doc.rect(startX, tableTop, colWidths.reduce((a, b) => a + b, 0), 25).fill("#1e40af");
-    doc.fillColor("white").fontSize(9);
-
-    let x = startX;
-    headers.forEach((header, i) => {
-      doc.text(header, x + 2, tableTop + 7, { width: colWidths[i] - 4, align: "center" });
-      x += colWidths[i];
-    });
-
-    doc.fillColor("black");
-    let rowY = tableTop + 25;
-
-    // Draw rows
-    job.results.forEach((result, idx) => {
-      const bgColor = idx % 2 === 0 ? "#f8fafc" : "#ffffff";
-      const rowHeight = 22;
-
-      doc.rect(startX, rowY, colWidths.reduce((a, b) => a + b, 0), rowHeight).fill(bgColor).stroke("#e2e8f0");
-
-      const rowData = [
-        result.accountNumber,
-        result.consumption ?? (result.status === "error" ? "خطأ" : "-"),
-        result.creditAdjustment ?? "-",
-        result.advanceBalance ?? "-",
-        result.amount ?? "-",
-        result.issueMonth ?? "-",
-      ];
-
-      doc.fillColor(result.status === "error" ? "#dc2626" : "#1e293b").fontSize(8);
-      x = startX;
-      rowData.forEach((cell, i) => {
-        doc.text(String(cell), x + 2, rowY + 7, { width: colWidths[i] - 4, align: "center" });
-        x += colWidths[i];
-      });
-
-      rowY += rowHeight;
-
-      // Add new page if needed
-      if (rowY > 750) {
-        doc.addPage();
-        rowY = 40;
-      }
-    });
-
-    // Summary
-    doc.moveDown(2);
-    doc.fillColor("#1e293b").fontSize(11);
-    const successCount = job.results.filter((r) => r.status === "success").length;
-    const errorCount = job.results.filter((r) => r.status === "error").length;
-    doc.text(`ملخص: ${successCount} حساب تم بنجاح، ${errorCount} حساب بخطأ`, { align: "right" });
-
-    doc.end();
-    stream.on("finish", () => resolve(pdfPath));
-    stream.on("error", reject);
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: nixChromium,
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
   });
+
+  try {
+    const page = await browser.newPage();
+    await page.goto(`file://${htmlPath}`, { waitUntil: "networkidle" });
+    // Wait for fonts to load
+    await page.waitForTimeout(1500);
+
+    await page.pdf({
+      path: pdfPath,
+      format: "A4",
+      printBackground: true,
+      margin: { top: "0mm", bottom: "0mm", left: "0mm", right: "0mm" },
+    });
+  } finally {
+    await browser.close().catch(() => {});
+    // Clean up temp HTML
+    fs.unlink(htmlPath, () => {});
+  }
+
+  return pdfPath;
 }
 
 async function runScraperJob(jobId: string, accounts: string[]) {
