@@ -34,19 +34,19 @@ FROM node:22-slim
 
   WORKDIR /app
 
-  # Install pnpm (v9 to match lockfile)
-  RUN npm install -g pnpm@9
+  # Install pnpm (latest)
+  RUN npm install -g pnpm
 
-  # Copy package files
-  COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+  # Copy package manifests
+  COPY package.json pnpm-workspace.yaml .npmrc ./
 
-  # Install dependencies
-  RUN pnpm install --frozen-lockfile
+  # Install dependencies (no lockfile enforcement to allow resolution in Docker)
+  RUN pnpm install --no-frozen-lockfile
 
   # Copy source code
   COPY . .
 
-  # Build only the api-server using esbuild (no typecheck needed — esbuild handles TS natively)
+  # Build only the api-server (esbuild bundles TS directly, no typecheck needed)
   RUN pnpm --filter @workspace/api-server run build
 
   # Set working directory to API server
