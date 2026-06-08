@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Petrotrade Invoice Extractor"
+version = "1.0.0"
+id = "artifacts/petrotrade-scraper"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25113
+
+[services.development]
+run = "pnpm --filter @workspace/petrotrade-scraper run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/petrotrade-scraper", "run", "build" ]
+publicDir = "artifacts/petrotrade-scraper/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25113"
+BASE_PATH = "/"
