@@ -33,8 +33,29 @@ import express, { type Express, type Request, type Response } from "express";
 
   app.use("/api", router);
 
+  // Debug endpoint to diagnose path issues on Render
+  app.get("/debug-paths", (_req: Request, res: Response) => {
+    const cwd = process.cwd();
+    const candidate = path.resolve(cwd, "../petrotrade-scraper/dist/public");
+    const candidateAlt = path.resolve(cwd, "../../artifacts/petrotrade-scraper/dist/public");
+    
+    let cwdList: string[] = [];
+    let parentList: string[] = [];
+    try { cwdList = fs.readdirSync(cwd); } catch {}
+    try { parentList = fs.readdirSync(path.resolve(cwd, "..")); } catch {}
+
+    res.json({
+      cwd,
+      candidate,
+      candidateExists: fs.existsSync(candidate),
+      candidateAlt,
+      candidateAltExists: fs.existsSync(candidateAlt),
+      cwdContents: cwdList,
+      parentContents: parentList,
+    });
+  });
+
   // Serve React frontend static files
-  // start command: cd artifacts/api-server && node ./dist/index.mjs => cwd = artifacts/api-server
   const frontendDist = path.resolve(process.cwd(), "../petrotrade-scraper/dist/public");
 
   if (fs.existsSync(frontendDist)) {
@@ -42,11 +63,9 @@ import express, { type Express, type Request, type Response } from "express";
     app.get("*", (_req: Request, res: Response) => {
       res.sendFile(path.join(frontendDist, "index.html"));
     });
-    logger.info({ frontendDist }, "Serving frontend static files");
   } else {
-    logger.warn({ frontendDist }, "Frontend dist not found, skipping static file serving");
     app.get("/", (_req: Request, res: Response) => {
-      res.json({ status: "ok", message: "Gas Bill Fetcher API is running", endpoints: ["/api/healthz", "/api/agent/status", "/api/scraper/run"] });
+      res.json({ status: "ok", message: "Gas Bill Fetcher API — frontend not found at: " + frontendDist });
     });
   }
 
