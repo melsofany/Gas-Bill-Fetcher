@@ -18,11 +18,8 @@ FROM node:22-slim
   # Copy all source
   COPY . .
 
-  # Install all packages but skip post-install scripts (avoids pnpm v10 build approval issues)
-  RUN pnpm install --ignore-scripts
-
-  # Manually run esbuild's post-install script to download the native binary
-  RUN node node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild/install.js
+  # Install all packages (onlyBuiltDependencies in pnpm-workspace.yaml controls which scripts run)
+  RUN pnpm install
 
   # Build the React frontend
   RUN cd artifacts/petrotrade-scraper && pnpm run build
