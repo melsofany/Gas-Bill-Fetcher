@@ -161,31 +161,50 @@ export default function Dashboard() {
               ) : (
                 <>
                   <p className="text-sm text-amber-800">
-                    شغّل الوكيل المحلي على جهازك داخل مصر حتى يتصل بهذا السيرفر ويقوم بالاستخراج مباشرةً دون الحاجة لأي بروكسي.
+                    ثبّت إضافة المتصفح مرة واحدة — لا تحتاج Node.js ولا Terminal.
                   </p>
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold text-amber-900">خطوات التشغيل:</p>
+
+                  {/* Download button */}
+                  <a
+                    href="/dl/browser-agent.zip"
+                    download="browser-agent.zip"
+                    className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg px-5 py-2.5 text-sm shadow transition-colors"
+                  >
+                    <Download className="h-4 w-4" />
+                    تحميل إضافة المتصفح
+                  </a>
+
+                  {/* Installation steps */}
+                  <div className="space-y-2 mt-1">
+                    <p className="text-xs font-semibold text-amber-900">خطوات التثبيت (دقيقة واحدة):</p>
                     <ol className="text-xs text-amber-800 space-y-2 list-decimal list-inside">
+                      <li>حمّل الملف أعلاه وفكّ ضغطه في أي مجلد على جهازك</li>
                       <li>
-                        تأكد أن Node.js مثبّت على جهازك
-                        <a href="https://nodejs.org" target="_blank" rel="noopener noreferrer" className="mr-1 text-amber-700 underline">
-                          nodejs.org
-                        </a>
+                        افتح Chrome أو Edge ← اكتب في الشريط{" "}
+                        <code className="bg-amber-100 px-1 rounded font-mono" dir="ltr">chrome://extensions</code>
+                        {" "}← فعّل <strong>Developer mode</strong> من أعلى اليمين
                       </li>
-                      <li>
-                        حمّل مجلد الوكيل من السيرفر أو انسخ مجلد <code className="bg-amber-100 px-1 rounded">scripts/local-agent</code>
-                      </li>
-                      <li>افتح Terminal وشغّل الأوامر التالية:</li>
+                      <li>اضغط <strong>Load unpacked</strong> ← اختر المجلد المفكوك</li>
                     </ol>
-                    <div className="bg-slate-900 rounded-lg p-3 font-mono text-xs text-green-400 space-y-1" dir="ltr">
-                      <div className="text-slate-400"># داخل مجلد الوكيل</div>
-                      <div>npm install</div>
-                      <div>node index.mjs --server <span className="text-yellow-300">{SERVER_WS_URL}</span></div>
-                    </div>
-                    <p className="text-xs text-amber-700">
-                      بعد التشغيل سترى رسالة <span className="font-mono bg-amber-100 px-1 rounded">✅ متصل بالسيرفر</span> ويتحوّل المؤشر أعلاه للأخضر.
+                    <p className="text-xs text-amber-700 flex items-center gap-1 mt-1">
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                      بعد التثبيت ستتصل الإضافة تلقائياً ويتحوّل المؤشر أعلاه للأخضر.
                     </p>
                   </div>
+
+                  {/* Advanced: Node.js fallback */}
+                  <details className="mt-1">
+                    <summary className="text-xs text-amber-700 cursor-pointer select-none hover:text-amber-900 transition-colors">
+                      ⚙ للمستخدمين المتقدمين — تشغيل وكيل Node.js
+                    </summary>
+                    <div className="mt-2">
+                      <div className="bg-slate-900 rounded-lg p-3 font-mono text-xs text-green-400 space-y-1" dir="ltr">
+                        <div className="text-slate-400"># inside local-agent folder</div>
+                        <div>npm install</div>
+                        <div>node index.mjs --server <span className="text-yellow-300">{SERVER_WS_URL}</span></div>
+                      </div>
+                    </div>
+                  </details>
                 </>
               )}
             </CardContent>
