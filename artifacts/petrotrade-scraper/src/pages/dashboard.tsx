@@ -310,17 +310,27 @@ export default function Dashboard() {
           </Card>
         )}
 
-        {/* Geo-block warning */}
-        {(isFailed || isNetworkError) && activeJobId && !agentConnected && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>فشل الاتصال بموقع بيتروتريد</AlertTitle>
-            <AlertDescription>
-              الموقع محجوب من خارج مصر. شغّل الوكيل المحلي على جهازك أو استخدم بروكسي مصري ثم أعد المحاولة.
-            </AlertDescription>
-          </Alert>
-        )}
-
+            {/* Job failure warning */}
+          {(isFailed || isNetworkError) && activeJobId && !agentConnected && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>فشل الاتصال بموقع بيتروتريد</AlertTitle>
+              <AlertDescription className="space-y-1">
+                <p>الموقع محجوب من خارج مصر. شغّل الوكيل المحلي على جهازك أو استخدم بروكسي مصري ثم أعد المحاولة.</p>
+                {errorSample && (
+                  <p className="font-mono text-xs opacity-80 break-all mt-1">سبب الخطأ: {errorSample}</p>
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+          {isFailed && activeJobId && !agentConnected && !isNetworkError && errorSample && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>فشل تشغيل السكريبر</AlertTitle>
+              <AlertDescription className="font-mono text-xs break-all">{errorSample}</AlertDescription>
+            </Alert>
+          )}
+  
         {/* Action Bar */}
         <Card className="shadow-sm border-slate-200">
           <CardContent className="p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
