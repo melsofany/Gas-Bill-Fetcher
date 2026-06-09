@@ -160,48 +160,74 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <>
-                  <p className="text-sm text-amber-800">
-                    ثبّت إضافة المتصفح مرة واحدة — لا تحتاج Node.js ولا Terminal.
-                  </p>
-
-                  {/* Download button */}
-                  <a
-                    href="/dl/browser-agent.zip"
-                    download="browser-agent.zip"
-                    className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg px-5 py-2.5 text-sm shadow transition-colors"
-                  >
-                    <Download className="h-4 w-4" />
-                    تحميل إضافة المتصفح
-                  </a>
-
-                  {/* Installation steps */}
-                  <div className="space-y-2 mt-1">
-                    <p className="text-xs font-semibold text-amber-900">خطوات التثبيت (دقيقة واحدة):</p>
-                    <ol className="text-xs text-amber-800 space-y-2 list-decimal list-inside">
-                      <li>حمّل الملف أعلاه وفكّ ضغطه في أي مجلد على جهازك</li>
-                      <li>
-                        افتح Chrome أو Edge ← اكتب في الشريط{" "}
-                        <code className="bg-amber-100 px-1 rounded font-mono" dir="ltr">chrome://extensions</code>
-                        {" "}← فعّل <strong>Developer mode</strong> من أعلى اليمين
-                      </li>
-                      <li>اضغط <strong>Load unpacked</strong> ← اختر المجلد المفكوك</li>
-                    </ol>
-                    <p className="text-xs text-amber-700 flex items-center gap-1 mt-1">
-                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-                      بعد التثبيت ستتصل الإضافة تلقائياً ويتحوّل المؤشر أعلاه للأخضر.
+                  {/* ── Primary: Tampermonkey (no downloads, no admin) ── */}
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2.5">
+                    <p className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                      <span className="bg-amber-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] shrink-0">✓</span>
+                      الطريقة الأسهل — بدون تنزيل أي ملفات ولا صلاحيات Admin
                     </p>
+
+                    {/* Step buttons */}
+                    <div className="flex flex-col gap-2">
+                      <a
+                        href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-lg px-4 py-2 text-xs shadow transition-colors"
+                      >
+                        <span className="text-sm">①</span>
+                        ثبّت Tampermonkey من Chrome Web Store
+                        <span className="text-slate-400 text-[10px] font-normal mr-auto">(مجاني — بدون Admin)</span>
+                      </a>
+
+                      <a
+                        href="/dl/agent.user.js"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-lg px-4 py-2 text-xs shadow transition-colors"
+                      >
+                        <span className="text-sm">②</span>
+                        ثبّت سكريبت الوكيل — كليك واحد
+                        <Download className="h-3.5 w-3.5 mr-auto" />
+                      </a>
+                    </div>
+
+                    <div className="space-y-1 pt-0.5">
+                      <p className="text-xs font-semibold text-amber-900">③ بعد التثبيت:</p>
+                      <p className="text-xs text-amber-800">
+                        افتح{" "}
+                        <a
+                          href="https://www.petrotrade.com.eg/web/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline font-medium"
+                        >
+                          petrotrade.com.eg
+                        </a>
+                        {" "}في تاب واتركه مفتوحاً — الوكيل سيتصل تلقائياً وستظهر رسالة{" "}
+                        <span className="font-mono bg-amber-100 px-1 rounded text-[11px]">⚡ الوكيل: متصل ✓</span>
+                        {" "}في أسفل يسار الصفحة.
+                      </p>
+                    </div>
                   </div>
 
-                  {/* Advanced: Node.js fallback */}
+                  {/* ── Secondary options (collapsed) ── */}
                   <details className="mt-1">
                     <summary className="text-xs text-amber-700 cursor-pointer select-none hover:text-amber-900 transition-colors">
-                      ⚙ للمستخدمين المتقدمين — تشغيل وكيل Node.js
+                      خيارات أخرى (إضافة Chrome / Node.js)
                     </summary>
-                    <div className="mt-2">
+                    <div className="mt-2 space-y-2">
+                      <a
+                        href="/dl/browser-agent.zip"
+                        download="browser-agent.zip"
+                        className="inline-flex items-center gap-2 border border-amber-300 text-amber-800 hover:bg-amber-50 rounded-lg px-4 py-2 text-xs transition-colors"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        تحميل Chrome Extension (يتطلب Load unpacked)
+                      </a>
                       <div className="bg-slate-900 rounded-lg p-3 font-mono text-xs text-green-400 space-y-1" dir="ltr">
-                        <div className="text-slate-400"># inside local-agent folder</div>
-                        <div>npm install</div>
-                        <div>node index.mjs --server <span className="text-yellow-300">{SERVER_WS_URL}</span></div>
+                        <div className="text-slate-400"># Node.js local agent</div>
+                        <div>npm install && node index.mjs --server <span className="text-yellow-300">{SERVER_WS_URL}</span></div>
                       </div>
                     </div>
                   </details>
