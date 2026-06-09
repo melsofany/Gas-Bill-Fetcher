@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; width: 270px; padding: 16px; background: #f8f9fa; }
+  h3 { font-size: 14px; font-weight: 700; color: #1e293b; margin-bottom: 12px; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+           border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .connected    { background: #d1fae5; color: #065f46; }
+  .disconnected { background: #fef3c7; color: #92400e; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot-green { background: #10b981; animation: pulse 1.5s infinite; }
+  .dot-amber { background: #f59e0b; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .info { font-size: 11px; color: #64748b; margin-top: 10px; }
+  .footer { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e8f0;
+            font-size: 10px; color: #94a3b8; text-align: center; }
+</style>
+</head>
+<body>
+<h3>⚡ وكيل فاتورة الغاز</h3>
+<div id="status" class="badge disconnected">
+  <span class="dot dot-amber" id="dot"></span>
+  <span id="statusText">جاري الاتصال...</span>
+</div>
+<p class="info" id="info"></p>
+<div class="footer">gas-bill-fetcher.onrender.com</div>
+<script src="popup.js"></script>
+</body>
+</html>
