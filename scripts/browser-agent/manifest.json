@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Gas Bill Fetcher Agent",
+  "version": "1.0.0",
+  "description": "وكيل فاتورة الغاز — يتصل بالسيرفر ويجلب بيانات الفواتير من بيتروتريد من داخل مصر",
+  "permissions": ["tabs", "scripting", "alarms", "storage"],
+  "host_permissions": [
+    "https://www.petrotrade.com.eg/*",
+    "wss://gas-bill-fetcher.onrender.com/*",
+    "https://gas-bill-fetcher.onrender.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Gas Bill Fetcher Agent"
+  }
+}
