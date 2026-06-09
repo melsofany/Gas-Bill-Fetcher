@@ -18,11 +18,13 @@ FROM node:22-slim
   # Copy all source
   COPY . .
 
-  # Install packages — no frozen-lockfile so pnpm picks the correct linux-x64-gnu native binaries
-  # (CI=true causes frozen-lockfile by default which fails for cross-platform native packages)
-  RUN pnpm install --no-frozen-lockfile
+  # Install all packages but skip post-install scripts (avoids pnpm v10 build approval issues)
+  RUN pnpm install --ignore-scripts
 
-  # Build the React frontend
+  # Manually run esbuild's post-install script to download the native binary
+  RUN node node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild/install.js
+
+  # Build the React frontend (native binaries like @tailwindcss/oxide are bundled in their npm packages)
   RUN cd artifacts/petrotrade-scraper && pnpm run build
 
   # Build the API server
