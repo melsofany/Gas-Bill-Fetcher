@@ -2,13 +2,9 @@ import { defineConfig } from "vite";
   import react from "@vitejs/plugin-react";
   import tailwindcss from "@tailwindcss/vite";
   import path from "path";
-  import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
-  const rawPort = process.env.PORT;
-  // PORT is only required for dev server, not for production build
-  const port = rawPort ? Number(rawPort) : 3000;
-
-  // BASE_PATH defaults to "/" for production builds
+  const isReplit = process.env.REPL_ID !== undefined;
+  const port = process.env.PORT ? Number(process.env.PORT) : 3000;
   const basePath = process.env.BASE_PATH ?? "/";
 
   export default defineConfig({
@@ -16,18 +12,17 @@ import { defineConfig } from "vite";
     plugins: [
       react(),
       tailwindcss(),
-      runtimeErrorOverlay(),
-      ...(process.env.NODE_ENV !== "production" &&
-      process.env.REPL_ID !== undefined
+      ...(isReplit
         ? [
-            await import("@replit/vite-plugin-cartographer").then((m) =>
-              m.cartographer({
-                root: path.resolve(import.meta.dirname, ".."),
-              }),
-            ),
-            await import("@replit/vite-plugin-dev-banner").then((m) =>
-              m.devBanner(),
-            ),
+            (await import("@replit/vite-plugin-runtime-error-modal")).default(),
+            ...(process.env.NODE_ENV !== "production"
+              ? [
+                  await import("@replit/vite-plugin-cartographer").then((m) =>
+                    m.cartographer({ root: path.resolve(import.meta.dirname, "..") }),
+                  ),
+                  await import("@replit/vite-plugin-dev-banner").then((m) => m.devBanner()),
+                ]
+              : []),
           ]
         : []),
     ],
@@ -48,9 +43,7 @@ import { defineConfig } from "vite";
       strictPort: true,
       host: "0.0.0.0",
       allowedHosts: true,
-      fs: {
-        strict: true,
-      },
+      fs: { strict: true },
       proxy: {
         "/api": {
           target: "http://localhost:8080",
