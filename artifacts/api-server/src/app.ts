@@ -27,6 +27,12 @@ import express, { type Express, type Request, type Response } from "express";
 
   app.use("/api", router);
 
+  // Serve browser extension zip at /dl/browser-agent.zip
+  const dlDir = path.resolve(process.cwd(), "public");
+  if (fs.existsSync(dlDir)) {
+    app.use("/dl", express.static(dlDir));
+  }
+
   const frontendDist = path.resolve(process.cwd(), "../petrotrade-scraper/dist/public");
 
   if (fs.existsSync(frontendDist)) {
