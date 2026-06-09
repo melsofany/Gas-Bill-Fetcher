@@ -11,10 +11,10 @@ RUN apt-get update && apt-get install -y \
     libxss1 libxtst6 fonts-liberation libappindicator3-1 \
     libc6 ca-certificates fonts-noto-cjk \
     libglib2.0-0 libx11-6 libx11-xcb1 libxcb-dri3-0 libexpat1 \
+    zip \
     && rm -rf /var/lib/apt/lists/*
 
 # Tell Playwright NOT to download its own Chromium binary
-# (we use the system apt-installed one instead)
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 # Explicitly point Playwright at the system Chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
@@ -24,6 +24,11 @@ WORKDIR /app
 RUN npm install -g pnpm
 
 COPY . .
+
+# Build browser extension zip (served at /dl/browser-agent.zip)
+RUN mkdir -p artifacts/api-server/public && \
+    cd scripts/browser-agent && \
+    zip -r /app/artifacts/api-server/public/browser-agent.zip .
 
 RUN pnpm install --ignore-scripts
 
