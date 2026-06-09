@@ -24,7 +24,10 @@ FROM node:22-slim
   # Manually run esbuild's post-install script to download the native binary
   RUN node node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild/install.js
 
-  # Build only the api-server
+  # Build the React frontend
+  RUN cd artifacts/petrotrade-scraper && pnpm run build
+
+  # Build the API server
   RUN pnpm --filter @workspace/api-server run build
 
   WORKDIR /app/artifacts/api-server
