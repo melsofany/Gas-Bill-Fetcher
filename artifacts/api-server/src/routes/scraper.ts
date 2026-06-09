@@ -791,22 +791,28 @@ async function runScraperJob(jobId: string, accounts: string[]) {
     // Use system Chromium from Nix store (avoids missing shared library issues on NixOS/Replit)
     const nixChromium = findNixChromium();
 
-    // HTTP proxy support from user provided Bright Data proxy
-    const proxyServer = process.env.BRIGHT_DATA_PROXY;
-    const proxyUser = process.env.BRIGHT_DATA_USER;
-    const proxyPass = process.env.BRIGHT_DATA_PASS;
-    
-    let proxyConfig = undefined;
-    if (proxyServer && proxyUser && proxyPass) {
-      proxyConfig = {
-        server: `http://${proxyServer}`,
-        username: proxyUser,
-        password: proxyPass
-      };
-    } else {
-      const httpProxy = proxyUrls.get(jobId) || process.env["PLAYWRIGHT_HTTP_PROXY"];
-      if (httpProxy) proxyConfig = { server: httpProxy };
-    }
+    // Proxy resolution priority:
+      // 1. Per-job proxy URL (from request body)
+      // 2. PLAYWRIGHT_HTTP_PROXY (manually configured full URL)
+      // 3. BRIGHT_DATA_* component env vars (fallback)
+      const perJobProxy = proxyUrls.get(jobId);
+      const playwrightHttpProxy = process.env["PLAYWRIGHT_HTTP_PROXY"];
+      const proxyServer = process.env.BRIGHT_DATA_PROXY;
+      const proxyUser = process.env.BRIGHT_DATA_USER;
+      const proxyPass = process.env.BRIGHT_DATA_PASS;
+
+      let proxyConfig: import("playwright").LaunchOptions["proxy"] = undefined;
+      if (perJobProxy) {
+        proxyConfig = { server: perJobProxy };
+      } else if (playwrightHttpProxy) {
+        proxyConfig = { server: playwrightHttpProxy };
+      } else if (proxyServer && proxyUser && proxyPass) {
+        proxyConfig = {
+          server: `http://${proxyServer}`,
+          username: proxyUser,
+          password: proxyPass,
+        };
+      }
 
     browser = await chromium.launch({
       headless: true,
