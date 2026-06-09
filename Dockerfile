@@ -25,7 +25,8 @@ FROM node:22-slim
   RUN node node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild/install.js
 
   # Download Playwright's Chromium browser (skipped by --ignore-scripts above)
-  RUN npx playwright install chromium
+  # Use pnpm exec instead of npx to correctly resolve the pnpm-managed binary
+  RUN pnpm exec playwright install chromium
 
   # Build the React frontend
   RUN cd artifacts/petrotrade-scraper && pnpm run build
