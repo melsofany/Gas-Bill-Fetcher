@@ -14,27 +14,38 @@ import { agentRelay } from "../lib/agent-relay";
  * Falls back to undefined (letting Playwright use its bundled browser).
  */
 function findNixChromium(): string | undefined {
-  const nixStore = "/nix/store";
-  if (!fs.existsSync(nixStore)) return undefined;
-
-  try {
-    const entries = fs.readdirSync(nixStore);
-    // Find chromium packages (not sandbox, not dev/src)
-    const chromiumPkgs = entries
-      .filter((e) => /^[a-z0-9]+-chromium-\d+/.test(e))
-      .filter((e) => !/sandbox|dev|src|drv/.test(e))
-      .sort()
-      .reverse(); // newest first (hash-sorted, good enough)
-
-    for (const pkg of chromiumPkgs) {
-      const bin = path.join(nixStore, pkg, "bin", "chromium");
-      if (fs.existsSync(bin)) return bin;
+    // 1. Explicit env var override (e.g. PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH in Docker)
+    if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
+      return process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
     }
-  } catch {
-    // ignore
+
+    // 2. Nix store (Replit dev environment)
+    const nixStore = "/nix/store";
+    if (fs.existsSync(nixStore)) {
+      try {
+        const entries = fs.readdirSync(nixStore);
+        const chromiumPkgs = entries
+          .filter((e) => /^[a-z0-9]+-chromium-\d+/.test(e))
+          .filter((e) => !/sandbox|dev|src|drv/.test(e))
+          .sort()
+          .reverse();
+
+        for (const pkg of chromiumPkgs) {
+          const bin = path.join(nixStore, pkg, "bin", "chromium");
+          if (fs.existsSync(bin)) return bin;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 3. System apt-installed chromium (Docker / Debian / Ubuntu)
+    for (const p of ["/usr/bin/chromium", "/usr/bin/chromium-browser"]) {
+      if (fs.existsSync(p)) return p;
+    }
+
+    return undefined;
   }
-  return undefined;
-}
 
 const router: IRouter = Router();
 
