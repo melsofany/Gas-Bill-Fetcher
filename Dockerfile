@@ -18,8 +18,9 @@ FROM node:22-slim
   # Copy all source
   COPY . .
 
-  # Install all packages (onlyBuiltDependencies in pnpm-workspace.yaml controls which scripts run)
-  RUN pnpm install
+  # Install packages — no frozen-lockfile so pnpm picks the correct linux-x64-gnu native binaries
+  # (CI=true causes frozen-lockfile by default which fails for cross-platform native packages)
+  RUN pnpm install --no-frozen-lockfile
 
   # Build the React frontend
   RUN cd artifacts/petrotrade-scraper && pnpm run build
