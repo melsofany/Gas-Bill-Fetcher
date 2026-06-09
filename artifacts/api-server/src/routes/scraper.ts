@@ -250,201 +250,366 @@ async function getAccountsFromSheet(): Promise<string[]> {
     .map((val) => String(val).trim());
 }
 
+/**
+ * Saves a debug screenshot to /tmp/petrotrade-debug/ and returns the path.
+ * Errors are silently swallowed — screenshots are best-effort only.
+ */
+async function takeDebugScreenshot(
+  page: import("playwright").Page,
+  label: string
+): Promise<string | null> {
+  try {
+    const dir = path.join(os.tmpdir(), "petrotrade-debug");
+    fs.mkdirSync(dir, { recursive: true });
+    const filePath = path.join(dir, `${Date.now()}-${label}.png`);
+    await page.screenshot({ path: filePath, fullPage: false });
+    return filePath;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Tries several selector strategies to click the Gas Invoice entry point on the
+ * Petrotrade home page.  Returns true if a click was successfully dispatched.
+ */
+async function clickGasInvoiceService(page: import("playwright").Page): Promise<boolean> {
+  const candidateSelectors = [
+    // Arabic exact text variants
+    'a:has-text("فاتورة الغاز")',
+    'button:has-text("فاتورة الغاز")',
+    'a:has-text("فاتوره الغاز")',
+    'li:has-text("فاتورة الغاز") a',
+    // Partial matches
+    '[href*="gas"]',
+    '[href*="GAS"]',
+    '[href*="invoice"]',
+    // Broader fallback — any clickable element mentioning الغاز
+    'a:has-text("الغاز")',
+    'button:has-text("الغاز")',
+    'td:has-text("الغاز")',
+    // استعلام عن فاتورة
+    'a:has-text("استعلام")',
+  ];
+
+  for (const sel of candidateSelectors) {
+    try {
+      const el = page.locator(sel).first();
+      if ((await el.count()) > 0) {
+        await el.click({ timeout: 10000 });
+        return true;
+      }
+    } catch {
+      // Try next selector
+    }
+  }
+  return false;
+}
+
+/**
+ * Fills the 16-digit account number into the Petrotrade input form.
+ *
+ * The form has 8 text inputs — each accepts exactly 2 digits and auto-tabs to
+ * the next field on the second keystroke.  We simulate real typing so the
+ * auto-tab JavaScript fires correctly.
+ */
+async function fillAccountNumber(
+  page: import("playwright").Page,
+  accountNumber: string
+): Promise<void> {
+  // Normalise: keep digits only, pad/truncate to 16
+  const digits = accountNumber.replace(/\D/g, "").padEnd(16, "0").slice(0, 16);
+
+  // Look for visible text/number inputs
+  const inputs = page.locator('input[type="text"], input[type="number"], input:not([type])');
+  const count = await inputs.count();
+
+  if (count === 0) {
+    throw new Error("لم يتم العثور على حقول إدخال رقم الحساب");
+  }
+
+  if (count >= 8) {
+    // 8-field form: type each 2-digit chunk into the matching input.
+    // We use keyboard.type() with a small delay so site-side auto-tab JS fires.
+    for (let i = 0; i < 8; i++) {
+      const chunk = digits.slice(i * 2, i * 2 + 2);
+      const input = inputs.nth(i);
+      await input.click();
+      await input.fill(""); // clear first
+      await page.keyboard.type(chunk, { delay: 80 });
+      // Give auto-tab time to move focus (site may do this via maxlength or JS)
+      await page.waitForTimeout(150);
+    }
+  } else if (count >= 1) {
+    // Single (or fewer than 8) input — type the full 16 digits;
+    // the auto-tab mechanism will distribute across fields automatically
+    const firstInput = inputs.first();
+    await firstInput.click();
+    await firstInput.fill("");
+    await page.keyboard.type(digits, { delay: 80 });
+  }
+}
+
+/**
+ * Tries to click the "فاتورة" details tab that appears after account lookup.
+ * Not every page layout has this tab — failure is silently ignored.
+ */
+async function clickInvoiceTab(page: import("playwright").Page): Promise<void> {
+  const tabSelectors = [
+    'button:has-text("فاتورة")',
+    'a:has-text("فاتورة")',
+    'li:has-text("فاتورة") a',
+    'li:has-text("فاتورة")',
+    '[role="tab"]:has-text("فاتورة")',
+    'span:has-text("فاتورة")',
+  ];
+
+  for (const sel of tabSelectors) {
+    try {
+      const el = page.locator(sel).first();
+      if ((await el.count()) > 0) {
+        await el.click({ timeout: 8000 });
+        await page.waitForTimeout(1500);
+        return;
+      }
+    } catch {
+      // Try next
+    }
+  }
+}
+
+/**
+ * Parses the invoice data table returned by the Petrotrade site.
+ *
+ * Strategy A — Header-row detection:
+ *   Find the <tr> whose cells contain the Arabic column headers, then read the
+ *   NEXT data row cell-by-cell using the header position as a column index.
+ *
+ * Strategy B — Label-adjacent scan:
+ *   Walk every <tr> on the page and match cell text against known Arabic labels;
+ *   the value is in the sibling cell to the right (or left in RTL).
+ *
+ * Strategy C — Full-body regex:
+ *   Last resort: match patterns in the full innerText of <body>.
+ */
+async function extractInvoiceData(page: import("playwright").Page): Promise<{
+  consumption: string | null;
+  creditAdjustment: string | null;
+  advanceBalance: string | null;
+  amount: string | null;
+  issueMonth: string | null;
+}> {
+  let consumption: string | null = null;
+  let creditAdjustment: string | null = null;
+  let advanceBalance: string | null = null;
+  let amount: string | null = null;
+  let issueMonth: string | null = null;
+
+  // ── Strategy A: header row + data row ───────────────────────────────────
+  try {
+    const allRows = await page.locator("table tr").all();
+
+    // Arabic header keywords mapped to our result fields
+    const headerMap: Record<string, keyof typeof colIndex> = {
+      "الاستهلاك": "consumption",
+      "تسوية": "creditAdjustment",
+      "رصيد": "advanceBalance",
+      "القيمة": "amount",
+      "شهر": "issueMonth",
+    };
+
+    const colIndex: Record<string, number> = {};
+    let headerRowIdx = -1;
+
+    for (let ri = 0; ri < allRows.length; ri++) {
+      const cells = await allRows[ri].locator("th, td").all();
+      if (cells.length < 3) continue;
+
+      const cellTexts = await Promise.all(cells.map((c) => c.innerText().catch(() => "")));
+      const foundHeaders: Record<string, number> = {};
+
+      for (const [keyword, field] of Object.entries(headerMap)) {
+        const idx = cellTexts.findIndex((t) => t.includes(keyword));
+        if (idx !== -1) foundHeaders[field] = idx;
+      }
+
+      if (Object.keys(foundHeaders).length >= 2) {
+        Object.assign(colIndex, foundHeaders);
+        headerRowIdx = ri;
+        break;
+      }
+    }
+
+    if (headerRowIdx >= 0 && headerRowIdx + 1 < allRows.length) {
+      const dataRow = allRows[headerRowIdx + 1];
+      const dataCells = await dataRow.locator("td").all();
+      const dataTexts = await Promise.all(dataCells.map((c) => c.innerText().catch(() => "")));
+
+      const pick = (field: string): string | null => {
+        const idx = colIndex[field];
+        if (idx === undefined || idx >= dataTexts.length) return null;
+        const val = dataTexts[idx].trim();
+        return val || null;
+      };
+
+      consumption = pick("consumption");
+      creditAdjustment = pick("creditAdjustment");
+      advanceBalance = pick("advanceBalance");
+      amount = pick("amount");
+      issueMonth = pick("issueMonth");
+    }
+  } catch {
+    // Fall through to strategy B
+  }
+
+  // ── Strategy B: label-adjacent scan ─────────────────────────────────────
+  if (!consumption && !amount) {
+    try {
+      const allRows = await page.locator("table tr").all();
+
+      const monthRegex =
+        /يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر/;
+
+      for (const row of allRows) {
+        const cells = await row.locator("td").all();
+        if (cells.length < 2) continue;
+        const texts = await Promise.all(cells.map((c) => c.innerText().catch(() => "").then((t) => t.trim())));
+
+        for (let ci = 0; ci < texts.length; ci++) {
+          const t = texts[ci];
+          // Value is in the NEXT cell
+          const nextVal = ci + 1 < texts.length ? texts[ci + 1] : null;
+          const numericVal = nextVal?.match(/[\d,.]+/)?.[0] ?? null;
+
+          if (/الاستهلاك/.test(t) && !consumption) consumption = numericVal;
+          if (/تسوية/.test(t) && !creditAdjustment) creditAdjustment = numericVal;
+          if (/رصيد دفعات|دفعات مقدمة/.test(t) && !advanceBalance) advanceBalance = numericVal;
+          if (/القيمة/.test(t) && !amount) amount = numericVal;
+          if (monthRegex.test(t) && /\d{4}/.test(t) && !issueMonth) issueMonth = t;
+          // Month might be in a separate "year" format: "يناير 2025"
+          if (monthRegex.test(t) && !issueMonth) issueMonth = t;
+        }
+      }
+    } catch {
+      // Fall through to strategy C
+    }
+  }
+
+  // ── Strategy C: full body text regex ────────────────────────────────────
+  if (!consumption && !amount) {
+    try {
+      const bodyText = await page.locator("body").innerText();
+
+      const m = (pattern: RegExp) => bodyText.match(pattern)?.[1]?.trim() ?? null;
+
+      consumption      = consumption      ?? m(/الاستهلاك\s*[:：]?\s*([\d,.]+)/);
+      creditAdjustment = creditAdjustment ?? m(/تسوية\s*مدين[ةه]\s*[:：]?\s*([\d,.]+)/);
+      advanceBalance   = advanceBalance   ?? m(/رصيد\s*دفعات\s*مقدم[ةه]\s*[:：]?\s*([\d,.]+)/);
+      amount           = amount           ?? m(/القيم[ةه]\s*[:：]?\s*([\d,.]+)/);
+
+      if (!issueMonth) {
+        const monthMatch = bodyText.match(
+          /(يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر)\s*\d{4}/
+        );
+        if (monthMatch) issueMonth = monthMatch[0];
+      }
+    } catch {
+      // Nothing more to try
+    }
+  }
+
+  return { consumption, creditAdjustment, advanceBalance, amount, issueMonth };
+}
+
 async function scrapeInvoice(
   page: import("playwright").Page,
   accountNumber: string
 ): Promise<Omit<InvoiceResult, "accountNumber">> {
   try {
+    // ── 1. Load the Petrotrade portal ──────────────────────────────────────
     await page.goto("https://www.petrotrade.com.eg/web/", {
       waitUntil: "domcontentloaded",
       timeout: 60000,
     });
 
-    await page.waitForTimeout(2000);
-
-    // Find and click on gas invoice / فاتورة الغاز link
-    const invoiceLink = page.locator('a, button, span, div').filter({ hasText: /فاتورة الغاز|فاتوره الغاز|gas invoice/i }).first();
-    await invoiceLink.click({ timeout: 15000 });
-    await page.waitForTimeout(2000);
-
-    // Enter account number - 16 digits, 2 per field (auto-tab)
-    // The user mentioned: "كل رقمين في خانه من الشمال لليمين وللعلم هو مزود بAUTO TAB"
-    const chunks: string[] = [];
-    for (let i = 0; i < accountNumber.length; i += 2) {
-      chunks.push(accountNumber.substring(i, i + 2));
-    }
-
-    // Petrotrade account number inputs are usually 8 fields of 2 digits each
-    const inputs = page.locator('input[type="text"], input[type="number"]');
-    const inputCount = await inputs.count();
-
-    if (inputCount >= 8) {
-      for (let i = 0; i < 8; i++) {
-        await inputs.nth(i).fill(chunks[i] || "");
-        // Auto-tab might be handled by the site, but we fill explicitly for safety
-      }
-    } else {
-      // Fallback for single input or different layout
-      await inputs.first().fill(accountNumber);
-    }
-
-    // Press Enter as requested
-    await page.keyboard.press("Enter");
+    // Wait for JavaScript to settle
     await page.waitForTimeout(3000);
+    await takeDebugScreenshot(page, "01-homepage");
 
-    // Look for فاتورة tab/button
-    const invoiceTab = page.locator('a, button, li, span').filter({ hasText: /^فاتورة$|^فواتير$/i }).first();
-    await invoiceTab.click({ timeout: 15000 });
-    await page.waitForTimeout(2000);
-
-    // Get current date to find relevant month
-    const now = new Date();
-    const currentMonth = now.getMonth() + 1;
-    const currentYear = now.getFullYear();
-
-    // Find all available issue month options/rows - pick the latest one
-    // Try to find month selector or table rows with months
-    const monthOptions = page.locator('select option, tr, .month-row, [class*="month"]');
-    
-    // Try to find table with invoice data
-    // Look for rows containing the data we need
-    await page.waitForTimeout(1000);
-
-    // Try to find the latest/most recent invoice row
-    // Look for month selector if present
-    const monthSelect = page.locator('select').first();
-    const hasSelect = await monthSelect.count() > 0;
-    
-    if (hasSelect) {
-      // Get options and select the most recent
-      const options = await monthSelect.locator('option').all();
-      if (options.length > 0) {
-        // Select first option (usually most recent)
-        await options[0].click();
-        await page.waitForTimeout(1000);
-      }
-    } else {
-      // Try clicking the first invoice row
-      const rows = page.locator('table tr').filter({ hasText: /\d{4}/ });
-      const rowCount = await rows.count();
-      if (rowCount > 0) {
-        await rows.first().click();
-        await page.waitForTimeout(1000);
-      }
+    // ── 2. Navigate to the gas invoice service ─────────────────────────────
+    const found = await clickGasInvoiceService(page);
+    if (!found) {
+      const bodySnippet = (await page.locator("body").innerText().catch(() => "")).slice(0, 300);
+      throw new Error(
+        `لم يتم العثور على رابط فاتورة الغاز في الصفحة الرئيسية. نص الصفحة: ${bodySnippet}`
+      );
     }
 
-    // Extract data from the table
-    // Look for the columns: الاستهلاك، تسوية مدينة، رصيد دفعات مقدمة، القيمة
-    const pageContent = await page.content();
-    
-    // Extract values using text patterns near known Arabic labels
-    const extractValue = async (labelPattern: RegExp): Promise<string | null> => {
-      try {
-        const cell = page.locator('td, th, span, div').filter({ hasText: labelPattern }).first();
-        const count = await cell.count();
-        if (count === 0) return null;
-        
-        // Try to get the next sibling's text
-        const parentRow = cell.locator('..').locator('..').first();
-        const rowText = await parentRow.innerText();
-        
-        const match = rowText.match(/[\d,.-]+/);
-        return match ? match[0] : null;
-      } catch {
-        return null;
-      }
-    };
+    await page.waitForTimeout(3000);
+    await takeDebugScreenshot(page, "02-gas-invoice-page");
 
-    // Try to find data in table cells
-    const tableRows = await page.locator('table tr').all();
-    
-    let consumption: string | null = null;
-    let creditAdjustment: string | null = null;
-    let advanceBalance: string | null = null;
-    let amount: string | null = null;
-    let issueMonth: string | null = null;
+    // ── 3. Fill the account number ─────────────────────────────────────────
+    await fillAccountNumber(page, accountNumber);
+    await takeDebugScreenshot(page, "03-account-filled");
 
-    for (const row of tableRows) {
-      const text = await row.innerText().catch(() => "");
-      
-      if (/الاستهلاك/i.test(text)) {
-        const cells = await row.locator('td').all();
-        for (const cell of cells) {
-          const cellText = await cell.innerText().catch(() => "");
-          if (/[\d,.-]+/.test(cellText) && !/الاستهلاك/.test(cellText)) {
-            consumption = cellText.trim();
-            break;
-          }
-        }
-      }
-      
-      if (/تسوية مدينة|تسوية/.test(text)) {
-        const cells = await row.locator('td').all();
-        for (const cell of cells) {
-          const cellText = await cell.innerText().catch(() => "");
-          if (/[\d,.-]+/.test(cellText) && !/تسوية/.test(cellText)) {
-            creditAdjustment = cellText.trim();
-            break;
-          }
-        }
-      }
-      
-      if (/رصيد دفعات|دفعات مقدمة/.test(text)) {
-        const cells = await row.locator('td').all();
-        for (const cell of cells) {
-          const cellText = await cell.innerText().catch(() => "");
-          if (/[\d,.-]+/.test(cellText) && !/رصيد|دفعات/.test(cellText)) {
-            advanceBalance = cellText.trim();
-            break;
-          }
-        }
-      }
-      
-      if (/القيمة|قيمة الفاتورة/.test(text)) {
-        const cells = await row.locator('td').all();
-        for (const cell of cells) {
-          const cellText = await cell.innerText().catch(() => "");
-          if (/[\d,.-]+/.test(cellText) && !/القيمة|قيمة/.test(cellText)) {
-            amount = cellText.trim();
-            break;
-          }
-        }
-      }
-      
-      if (/\d{4}/.test(text) && /يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec/i.test(text)) {
-        issueMonth = text.trim().split('\n')[0];
-      }
+    // Submit — press Enter then wait for results
+    await page.keyboard.press("Enter");
+    // Also try clicking a submit/search button if present
+    try {
+      const submitBtn = page
+        .locator('button[type="submit"], input[type="submit"], button:has-text("بحث"), button:has-text("استعلام")')
+        .first();
+      if ((await submitBtn.count()) > 0) await submitBtn.click({ timeout: 5000 });
+    } catch {
+      // Ignore — Enter press above is usually enough
     }
 
-    // If we couldn't find via table rows, try a different approach
-    // Look for the data in the full page text
-    if (!consumption && !amount) {
-      const bodyText = await page.locator('body').innerText().catch(() => "");
-      
-      const consumptionMatch = bodyText.match(/الاستهلاك[^\d]*([\d,.]+)/);
-      if (consumptionMatch) consumption = consumptionMatch[1];
-      
-      const creditMatch = bodyText.match(/تسوية مدينة[^\d]*([\d,.]+)/);
-      if (creditMatch) creditAdjustment = creditMatch[1];
-      
-      const balanceMatch = bodyText.match(/رصيد دفعات مقدمة[^\d]*([\d,.]+)/);
-      if (balanceMatch) advanceBalance = balanceMatch[1];
-      
-      const amountMatch = bodyText.match(/القيمة[^\d]*([\d,.]+)/);
-      if (amountMatch) amount = amountMatch[1];
+    await page.waitForTimeout(4000);
+    await takeDebugScreenshot(page, "04-after-submit");
+
+    // ── 4. Click the "فاتورة" detail tab (if it exists) ───────────────────
+    await clickInvoiceTab(page);
+    await takeDebugScreenshot(page, "05-invoice-tab");
+
+    // Handle month selector / list — pick the most recent entry
+    try {
+      const monthSelect = page.locator("select").first();
+      if ((await monthSelect.count()) > 0) {
+        // Select the first option (most recent)
+        const options = await monthSelect.locator("option").all();
+        if (options.length > 0) {
+          const firstVal = await options[0].getAttribute("value");
+          if (firstVal) await monthSelect.selectOption(firstVal);
+          else await options[0].click();
+          await page.waitForTimeout(1500);
+        }
+      } else {
+        // Try clicking first data row in an invoice list table
+        const listRows = page.locator("table tbody tr").filter({ hasText: /\d{4}/ });
+        if ((await listRows.count()) > 0) {
+          await listRows.first().click({ timeout: 5000 });
+          await page.waitForTimeout(1500);
+        }
+      }
+    } catch {
+      // Non-critical — proceed to extraction
     }
+
+    await takeDebugScreenshot(page, "06-before-extract");
+
+    // ── 5. Extract invoice data ────────────────────────────────────────────
+    const data = await extractInvoiceData(page);
+
+    await takeDebugScreenshot(page, "07-done");
 
     return {
-      consumption,
-      creditAdjustment,
-      advanceBalance,
-      amount,
-      issueMonth,
+      ...data,
       status: "success",
       error: null,
     };
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : String(err);
+    try { await takeDebugScreenshot(page, "error"); } catch { /* ignore */ }
     return {
       consumption: null,
       creditAdjustment: null,
