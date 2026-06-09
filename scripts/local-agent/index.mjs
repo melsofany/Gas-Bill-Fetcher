@@ -31,157 +31,237 @@ const wsUrl = serverUrl.replace(/^http/, "ws").replace(/\/$/, "") + "/api/agent/
 
 console.log(`🔌  الاتصال بـ: ${wsUrl}`);
 
-// ─── دالة استخراج الفاتورة ───────────────────────────────────────────────
+// ─── Selector strategies + scraping helpers ──────────────────────────────────
+const GAS_INVOICE_SELECTORS = [
+  'a:has-text("فاتورة الغاز")',
+  'button:has-text("فاتورة الغاز")',
+  'a:has-text("فاتوره الغاز")',
+  'li:has-text("فاتورة الغاز") a',
+  '[href*="gas"]',
+  '[href*="GAS"]',
+  '[href*="invoice"]',
+  'a:has-text("الغاز")',
+  'button:has-text("الغاز")',
+  'td:has-text("الغاز")',
+  'a:has-text("استعلام")',
+];
+
+async function clickGasInvoiceService(page) {
+  for (const sel of GAS_INVOICE_SELECTORS) {
+    try {
+      const el = page.locator(sel).first();
+      if ((await el.count()) > 0) {
+        await el.click({ timeout: 10000 });
+        return true;
+      }
+    } catch { /* try next */ }
+  }
+  return false;
+}
+
+async function fillAccountNumber(page, accountNumber) {
+  const digits = accountNumber.replace(/\D/g, "").padEnd(16, "0").slice(0, 16);
+  const inputs = page.locator('input[type="text"], input[type="number"], input:not([type])');
+  const count = await inputs.count();
+
+  if (count === 0) throw new Error("لم يتم العثور على حقول إدخال رقم الحساب");
+
+  if (count >= 8) {
+    for (let i = 0; i < 8; i++) {
+      const chunk = digits.slice(i * 2, i * 2 + 2);
+      const input = inputs.nth(i);
+      await input.click();
+      await input.fill("");
+      await page.keyboard.type(chunk, { delay: 80 });
+      await page.waitForTimeout(150);
+    }
+  } else {
+    const firstInput = inputs.first();
+    await firstInput.click();
+    await firstInput.fill("");
+    await page.keyboard.type(digits, { delay: 80 });
+  }
+}
+
+async function clickInvoiceTab(page) {
+  const tabSelectors = [
+    'button:has-text("فاتورة")',
+    'a:has-text("فاتورة")',
+    'li:has-text("فاتورة") a',
+    'li:has-text("فاتورة")',
+    '[role="tab"]:has-text("فاتورة")',
+    'span:has-text("فاتورة")',
+  ];
+  for (const sel of tabSelectors) {
+    try {
+      const el = page.locator(sel).first();
+      if ((await el.count()) > 0) {
+        await el.click({ timeout: 8000 });
+        await page.waitForTimeout(1500);
+        return;
+      }
+    } catch { /* ignore */ }
+  }
+}
+
+async function extractInvoiceData(page) {
+  let consumption = null, creditAdjustment = null, advanceBalance = null,
+      amount = null, issueMonth = null;
+
+  // Strategy A: header row + data row
+  try {
+    const allRows = await page.locator("table tr").all();
+    const headerMap = {
+      "الاستهلاك": "consumption",
+      "تسوية": "creditAdjustment",
+      "رصيد": "advanceBalance",
+      "القيمة": "amount",
+      "شهر": "issueMonth",
+    };
+    const colIndex = {};
+    let headerRowIdx = -1;
+
+    for (let ri = 0; ri < allRows.length; ri++) {
+      const cells = await allRows[ri].locator("th, td").all();
+      if (cells.length < 3) continue;
+      const cellTexts = await Promise.all(cells.map(c => c.innerText().catch(() => "")));
+      const found = {};
+      for (const [kw, field] of Object.entries(headerMap)) {
+        const idx = cellTexts.findIndex(t => t.includes(kw));
+        if (idx !== -1) found[field] = idx;
+      }
+      if (Object.keys(found).length >= 2) {
+        Object.assign(colIndex, found);
+        headerRowIdx = ri;
+        break;
+      }
+    }
+
+    if (headerRowIdx >= 0 && headerRowIdx + 1 < allRows.length) {
+      const dataCells = await allRows[headerRowIdx + 1].locator("td").all();
+      const dataTexts = await Promise.all(dataCells.map(c => c.innerText().catch(() => "")));
+      const pick = (f) => {
+        const idx = colIndex[f];
+        return (idx !== undefined && idx < dataTexts.length) ? dataTexts[idx].trim() || null : null;
+      };
+      consumption = pick("consumption");
+      creditAdjustment = pick("creditAdjustment");
+      advanceBalance = pick("advanceBalance");
+      amount = pick("amount");
+      issueMonth = pick("issueMonth");
+    }
+  } catch { /* fall through */ }
+
+  // Strategy B: label-adjacent scan
+  if (!consumption && !amount) {
+    try {
+      const allRows = await page.locator("table tr").all();
+      const monthRe = /يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر/;
+      for (const row of allRows) {
+        const cells = await row.locator("td").all();
+        if (cells.length < 2) continue;
+        const texts = await Promise.all(cells.map(c => c.innerText().catch(() => "").then(t => t.trim())));
+        for (let ci = 0; ci < texts.length; ci++) {
+          const t = texts[ci];
+          const nextNum = texts[ci + 1]?.match(/[\d,.]+/)?.[0] ?? null;
+          if (/الاستهلاك/.test(t) && !consumption) consumption = nextNum;
+          if (/تسوية/.test(t) && !creditAdjustment) creditAdjustment = nextNum;
+          if (/رصيد دفعات|دفعات مقدمة/.test(t) && !advanceBalance) advanceBalance = nextNum;
+          if (/القيمة/.test(t) && !amount) amount = nextNum;
+          if (monthRe.test(t) && /\d{4}/.test(t) && !issueMonth) issueMonth = t;
+          else if (monthRe.test(t) && !issueMonth) issueMonth = t;
+        }
+      }
+    } catch { /* fall through */ }
+  }
+
+  // Strategy C: body text regex
+  if (!consumption && !amount) {
+    try {
+      const body = await page.locator("body").innerText();
+      const m = (re) => body.match(re)?.[1]?.trim() ?? null;
+      consumption      = consumption      ?? m(/الاستهلاك\s*[:：]?\s*([\d,.]+)/);
+      creditAdjustment = creditAdjustment ?? m(/تسوية\s*مدين[ةه]\s*[:：]?\s*([\d,.]+)/);
+      advanceBalance   = advanceBalance   ?? m(/رصيد\s*دفعات\s*مقدم[ةه]\s*[:：]?\s*([\d,.]+)/);
+      amount           = amount           ?? m(/القيم[ةه]\s*[:：]?\s*([\d,.]+)/);
+      if (!issueMonth) {
+        const mm = body.match(/(يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر)\s*\d{4}/);
+        if (mm) issueMonth = mm[0];
+      }
+    } catch { /* nothing more */ }
+  }
+
+  return { consumption, creditAdjustment, advanceBalance, amount, issueMonth };
+}
+
 async function scrapeInvoice(page, accountNumber) {
   try {
+    // 1. Load Petrotrade portal
     await page.goto("https://www.petrotrade.com.eg/web/", {
       waitUntil: "domcontentloaded",
       timeout: 60000,
     });
-    await page.waitForTimeout(2000);
-
-    const invoiceLink = page
-      .locator("a, button, span, div")
-      .filter({ hasText: /فاتورة الغاز|فاتوره الغاز|gas invoice/i })
-      .first();
-    await invoiceLink.click({ timeout: 15000 });
-    await page.waitForTimeout(2000);
-
-    const chunks = [];
-    for (let i = 0; i < accountNumber.length; i += 2) {
-      chunks.push(accountNumber.substring(i, i + 2));
-    }
-
-    const inputs = page.locator(
-      'input[type="text"], input[type="number"], input:not([type])'
-    );
-    const inputCount = await inputs.count();
-
-    if (inputCount >= 8) {
-      for (let i = 0; i < Math.min(chunks.length, inputCount); i++) {
-        await inputs.nth(i).click();
-        await inputs.nth(i).fill(chunks[i]);
-        await page.waitForTimeout(200);
-      }
-    } else {
-      const firstInput = inputs.first();
-      await firstInput.click();
-      await firstInput.fill(accountNumber);
-    }
-
-    await page.keyboard.press("Enter");
     await page.waitForTimeout(3000);
+    console.log(`   [${accountNumber}] ✓ الصفحة محملة`);
 
-    const invoiceTab = page
-      .locator("a, button, li, span")
-      .filter({ hasText: /^فاتورة$|^فواتير$/i })
-      .first();
-    await invoiceTab.click({ timeout: 15000 });
-    await page.waitForTimeout(2000);
-
-    const monthSelect = page.locator("select").first();
-    const hasSelect = (await monthSelect.count()) > 0;
-    if (hasSelect) {
-      const options = await monthSelect.locator("option").all();
-      if (options.length > 0) {
-        await options[0].click();
-        await page.waitForTimeout(1000);
-      }
-    } else {
-      const rows = page.locator("table tr").filter({ hasText: /\d{4}/ });
-      const rowCount = await rows.count();
-      if (rowCount > 0) {
-        await rows.first().click();
-        await page.waitForTimeout(1000);
-      }
+    // 2. Navigate to gas invoice service
+    const found = await clickGasInvoiceService(page);
+    if (!found) {
+      const bodySnippet = (await page.locator("body").innerText().catch(() => "")).slice(0, 200);
+      throw new Error(`لم يتم العثور على رابط فاتورة الغاز. نص الصفحة: ${bodySnippet}`);
     }
+    await page.waitForTimeout(3000);
+    console.log(`   [${accountNumber}] ✓ تم الدخول لخدمة الغاز`);
 
-    let consumption = null;
-    let creditAdjustment = null;
-    let advanceBalance = null;
-    let amount = null;
-    let issueMonth = null;
+    // 3. Fill account number (8 fields × 2 digits, auto-tab)
+    await fillAccountNumber(page, accountNumber);
+    console.log(`   [${accountNumber}] ✓ تم إدخال رقم الحساب`);
 
-    const tableRows = await page.locator("table tr").all();
+    // 4. Submit
+    await page.keyboard.press("Enter");
+    try {
+      const btn = page.locator(
+        'button[type="submit"], input[type="submit"], button:has-text("بحث"), button:has-text("استعلام")'
+      ).first();
+      if ((await btn.count()) > 0) await btn.click({ timeout: 5000 });
+    } catch { /* Enter was enough */ }
+    await page.waitForTimeout(4000);
+    console.log(`   [${accountNumber}] ✓ تم الإرسال`);
 
-    for (const row of tableRows) {
-      const text = await row.innerText().catch(() => "");
+    // 5. Click invoice tab if present
+    await clickInvoiceTab(page);
 
-      if (/الاستهلاك/i.test(text)) {
-        const cells = await row.locator("td").all();
-        for (const cell of cells) {
-          const ct = await cell.innerText().catch(() => "");
-          if (/[\d,.-]+/.test(ct) && !/الاستهلاك/.test(ct)) {
-            consumption = ct.trim();
-            break;
-          }
+    // 6. Handle month selector
+    try {
+      const sel = page.locator("select").first();
+      if ((await sel.count()) > 0) {
+        const opts = await sel.locator("option").all();
+        if (opts.length > 0) {
+          const val = await opts[0].getAttribute("value");
+          if (val) await sel.selectOption(val);
+          else await opts[0].click();
+          await page.waitForTimeout(1500);
+        }
+      } else {
+        const rows = page.locator("table tbody tr").filter({ hasText: /\d{4}/ });
+        if ((await rows.count()) > 0) {
+          await rows.first().click({ timeout: 5000 });
+          await page.waitForTimeout(1500);
         }
       }
-      if (/تسوية مدينة|تسوية/.test(text)) {
-        const cells = await row.locator("td").all();
-        for (const cell of cells) {
-          const ct = await cell.innerText().catch(() => "");
-          if (/[\d,.-]+/.test(ct) && !/تسوية/.test(ct)) {
-            creditAdjustment = ct.trim();
-            break;
-          }
-        }
-      }
-      if (/رصيد دفعات|دفعات مقدمة/.test(text)) {
-        const cells = await row.locator("td").all();
-        for (const cell of cells) {
-          const ct = await cell.innerText().catch(() => "");
-          if (/[\d,.-]+/.test(ct) && !/رصيد|دفعات/.test(ct)) {
-            advanceBalance = ct.trim();
-            break;
-          }
-        }
-      }
-      if (/القيمة|قيمة الفاتورة/.test(text)) {
-        const cells = await row.locator("td").all();
-        for (const cell of cells) {
-          const ct = await cell.innerText().catch(() => "");
-          if (/[\d,.-]+/.test(ct) && !/القيمة|قيمة/.test(ct)) {
-            amount = ct.trim();
-            break;
-          }
-        }
-      }
-      if (
-        /\d{4}/.test(text) &&
-        /يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec/i.test(
-          text
-        )
-      ) {
-        issueMonth = text.trim().split("\n")[0];
-      }
-    }
+    } catch { /* non-critical */ }
 
-    if (!consumption && !amount) {
-      const bodyText = await page
-        .locator("body")
-        .innerText()
-        .catch(() => "");
-      const cm = bodyText.match(/الاستهلاك[^\d]*([\d,.]+)/);
-      if (cm) consumption = cm[1];
-      const cr = bodyText.match(/تسوية مدينة[^\d]*([\d,.]+)/);
-      if (cr) creditAdjustment = cr[1];
-      const bm = bodyText.match(/رصيد دفعات مقدمة[^\d]*([\d,.]+)/);
-      if (bm) advanceBalance = bm[1];
-      const am = bodyText.match(/القيمة[^\d]*([\d,.]+)/);
-      if (am) amount = am[1];
-    }
+    // 7. Extract data
+    const data = await extractInvoiceData(page);
+    console.log(`   [${accountNumber}] ✓ البيانات: القيمة=${data.amount ?? "—"} الاستهلاك=${data.consumption ?? "—"}`);
 
-    return { consumption, creditAdjustment, advanceBalance, amount, issueMonth, status: "success", error: null };
+    return { ...data, status: "success", error: null };
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`   [${accountNumber}] ✗ خطأ: ${msg}`);
     return {
-      consumption: null,
-      creditAdjustment: null,
-      advanceBalance: null,
-      amount: null,
-      issueMonth: null,
-      status: "error",
-      error: err instanceof Error ? err.message : String(err),
+      consumption: null, creditAdjustment: null, advanceBalance: null,
+      amount: null, issueMonth: null, status: "error", error: msg,
     };
   }
 }
