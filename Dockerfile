@@ -25,10 +25,11 @@ RUN npm install -g pnpm
 
 COPY . .
 
-# Build browser extension zip (served at /dl/browser-agent.zip)
+# Build browser extension zip + copy Tampermonkey userscript (both served at /dl/)
 RUN mkdir -p artifacts/api-server/public && \
     cd scripts/browser-agent && \
-    zip -r /app/artifacts/api-server/public/browser-agent.zip .
+    zip -r /app/artifacts/api-server/public/browser-agent.zip . && \
+    cp /app/scripts/browser-agent/agent.user.js /app/artifacts/api-server/public/agent.user.js
 
 RUN pnpm install --ignore-scripts
 
