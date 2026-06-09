@@ -1,6 +1,6 @@
 FROM node:22-slim
 
-  # Install system dependencies for Playwright
+  # Install system dependencies for Playwright/Chromium
   RUN apt-get update && apt-get install -y \
       libnss3 libnspr4 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 \
       libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
@@ -24,7 +24,10 @@ FROM node:22-slim
   # Manually run esbuild's post-install script to download the native binary
   RUN node node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild/install.js
 
-  # Build the React frontend (native binaries like @tailwindcss/oxide are bundled in their npm packages)
+  # Download Playwright's Chromium browser (skipped by --ignore-scripts above)
+  RUN npx playwright install chromium
+
+  # Build the React frontend
   RUN cd artifacts/petrotrade-scraper && pnpm run build
 
   # Build the API server
