@@ -1,10 +1,8 @@
 services:
     - type: web
       name: gas-bill-fetcher-api
-      env: node
+      env: docker
       plan: standard
-      buildCommand: pnpm install && (cd artifacts/petrotrade-scraper && pnpm run build) && (cd artifacts/api-server && pnpm run build)
-      startCommand: cd artifacts/api-server && node --enable-source-maps ./dist/index.mjs
       envVars:
         - key: NODE_ENV
           value: production
